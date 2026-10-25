@@ -181,3 +181,8 @@ cython_debug/
 .cursorindexingignore
 /original_roms
 /output
+
+# Local reverse-engineering tools and transient emulator traces
+/custom/tools/
+/custom/research/
+/custom/validation

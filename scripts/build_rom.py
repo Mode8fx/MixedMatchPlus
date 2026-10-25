@@ -94,6 +94,8 @@ def build_rom(source: bytes) -> bytes:
         rom[offset:offset + len(expected)] = replacement
 
     patch_preview(rom, source)
+    from single_player import apply
+    apply(rom, source)
 
     # The checksum/complement pair always contributes $01FE to the byte sum.
     rom[0x7FDC:0x7FE0] = bytes.fromhex("ff ff 00 00")

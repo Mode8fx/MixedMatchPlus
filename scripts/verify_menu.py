@@ -31,6 +31,7 @@ class Emulator:
         self.core = C.CDLL(str(core.resolve()))
         self.pixel_format = 0
         self.buttons = set()
+        self.buttons_two = set()
         self.frame = None
         self.directory = str((ROOT / "output").resolve()).encode()
         self.callbacks = []
@@ -52,7 +53,8 @@ class Emulator:
                 self.frame = (C.string_at(data, pitch * height), width, height, pitch)
 
         def input_state(port, device, index, button):
-            return int(port == 0 and device == 1 and button in self.buttons)
+            return int(device == 1 and ((port == 0 and button in self.buttons)
+                                       or (port == 1 and button in self.buttons_two)))
 
         callbacks = (
             ("environment", C.CFUNCTYPE(C.c_bool, C.c_uint, C.c_void_p), environment),
@@ -78,11 +80,29 @@ class Emulator:
         if not self.core.retro_load_game(C.byref(info)):
             raise RuntimeError("Core could not load ROM")
         self.core.retro_set_controller_port_device(0, 1)
+        self.core.retro_set_controller_port_device(1, 1)
+        self.core.retro_get_memory_data.argtypes = [C.c_uint]
+        self.core.retro_get_memory_data.restype = C.c_void_p
+        self.core.retro_get_memory_size.argtypes = [C.c_uint]
+        self.core.retro_get_memory_size.restype = C.c_size_t
 
-    def run(self, frames: int, buttons=()):
+    def run(self, frames: int, buttons=(), buttons_two=()):
         self.buttons = set(buttons)
+        self.buttons_two = set(buttons_two)
         for _ in range(frames):
             self.core.retro_run()
+
+    def memory(self, kind=2):
+        size = self.core.retro_get_memory_size(kind)
+        if not size:
+            raise RuntimeError("Core does not expose this RAM; use the Snes9x core for validation")
+        return C.string_at(self.core.retro_get_memory_data(kind), size)
+
+    def write_memory(self, address: int, data: bytes, kind=2):
+        size = self.core.retro_get_memory_size(kind)
+        if address < 0 or address + len(data) > size:
+            raise ValueError("Memory write outside exposed RAM")
+        C.memmove(self.core.retro_get_memory_data(kind) + address, data, len(data))
 
     def screenshot(self, path: Path):
         if self.frame is None:
@@ -137,18 +157,19 @@ def check(core: Path):
     for tile in PREVIEW_TILES:
         offset = PREVIEW_GFX_BASE + tile * 32
         allowed.update(range(offset, offset + 32))
+    from single_player import apply
+    for start,end in apply(bytearray(original), original):
+        allowed.update(range(start,end))
     changed = {i for i, (a, b) in enumerate(zip(original, patched)) if a != b}
     assert changed <= allowed, "Unexpected changes outside labels/checksum"
     scenarios = (
         ("game-select", SELECT_SEQUENCE + ["down:1", "120"], (48, 208, 96, 212)),
         ("game-select-dim", SELECT_SEQUENCE, (48, 208, 96, 212)),
         ("mixed-match-menu", MENU_SEQUENCE, (88, 176, 176, 184)),
-        ("game-start", MENU_SEQUENCE + ["start:1", "120"], None),
-        ("custom-game", MENU_SEQUENCE + ["down:1", "1", "start:1", "120"], None),
     )
     for name, sequence, label_bounds in scenarios:
         pictures = [capture(core, rom, sequence,
-                            ROOT / "screenshots" / f"{prefix}{name}.png")
+                            ROOT / "custom" / "validation" / f"{prefix}{name}.png")
                     for rom, prefix in ((SOURCE, "original-"), (OUTPUT, ""))]
         difference = ImageChops.difference(*pictures)
         if label_bounds:
@@ -159,8 +180,9 @@ def check(core: Path):
         else:
             assert difference.getbbox() is None, f"{name} behavior changed"
     assert SOURCE.read_bytes() == original, "Original ROM changed"
-    print(f"PASS: repeatable build, {len(changed)} changed bytes, labels localized, "
-          "both destinations identical, original ROM intact")
+    print(f"PASS: repeatable build, {len(changed)} changed bytes, title/preview labels localized, original ROM intact")
+    from validate_single_player import verify
+    verify(core)
 
 
 def main():
@@ -169,7 +191,7 @@ def main():
         "C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll"))
     parser.add_argument("--rom", type=Path, default=OUTPUT)
     parser.add_argument("--sequence", nargs="+", default=MENU_SEQUENCE)
-    parser.add_argument("--capture", type=Path, default=ROOT / "screenshots" / "mixed-match-menu.png")
+    parser.add_argument("--capture", type=Path, default=ROOT / "custom" / "validation" / "mixed-match-menu.png")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     if args.check:
