@@ -16,6 +16,8 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     ranges=[]
     def put(off,data):
         rom[off:off+len(data)]=data;ranges.append((off,off+len(data)))
+    def text(s):
+        return b''.join(struct.pack('<H',0x2000 if c==' ' else 0x2100+(int(c) if c.isdigit() else ord(c)-55)) for c in s)
     def hook(pc,label,size=3,opcode=0x20):
         addr=labels[label];width=3 if opcode in (0x22,0x5c) else 2
         data=bytes([opcode])+(addr&((1<<(width*8))-1)).to_bytes(width,'little')
@@ -50,22 +52,32 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     hook(0x8AD03C,'solo_initial_maps')
     put(offset(0x8AD36E),struct.pack('<H',labels['solo_reload_init'] & 0xffff))
 
-    # Normal menu: insert count row; tighten gaps below the handicap and time.
+    # Normal menu: four framed headings, with a compact native-style count row.
     base=0xB2000
     rows=[source[base+i*64:base+(i+1)*64] for i in range(32)]
     empty=rows[7]
     new=rows.copy()
-    for row in range(4,18):new[row]=empty
-    for old,dest in ((4,6),(5,7),(6,8),(9,11),(12,13),(13,14),(14,15),(16,16)):
+    for row in range(4,24):new[row]=empty
+    for old,dest in ((4,8),(5,9),(6,10),(9,12),(12,14),(13,15),(14,16),(16,18),(18,19),(19,20),(20,21),(22,23)):
         new[dest]=rows[old]
+    for row,entries in (
+        (4,struct.pack('<9H',0x2024,*([0x2025]*7),0x6024)),
+        (5,struct.pack('<H',0x2026)+text('PLAYERS')+struct.pack('<H',0x6026)),
+        (6,struct.pack('<9H',0xa024,*([0xa025]*7),0xe024)),
+        (7,text('1 2  PLAYERS')),
+    ):
+        line=bytearray(new[row]);col=7 if row==7 else 4
+        line[col*2:col*2+len(entries)]=entries;new[row]=bytes(line)
     put(base,b''.join(new))
     # Native selection borders follow their moved header tiles.
-    for start,count,delta in ((0x8AE809,22,0x80),(0x8AE842,24,0x40)):
+    for start,count,delta in ((0x8AE809,22,0x100),(0x8AE842,24,0x80),(0x8AE87F,30,0x40)):
         off=offset(start);values=struct.unpack_from('<'+str(count)+'H',source,off)
         put(off,struct.pack('<'+str(count)+'H',*(v+delta for v in values)))
     # Handicap markers move with the shared difficulty labels.
-    put(offset(0x83DF75),b'\x47')
-    put(offset(0x83DF8D),b'\x5f')
+    put(offset(0x83DF75),b'\x4f')
+    put(offset(0x83DF8D),b'\x67')
+    put(offset(0x83DFA8),b'\x8f')
+    put(offset(0x83DFC3),b'\xb7')
 
     # Custom menu: move content and bottom border down two rows; insert count row.
     base=0xAE800
@@ -77,9 +89,6 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     values=struct.unpack_from('<13H',source,off)
     put(off,struct.pack('<13H',*(v+0x80 for v in values)))
 
-    def text(s):
-        return b''.join(struct.pack('<H',0x2000 if c==' ' else 0x2100+(int(c) if c.isdigit() else ord(c)-55)) for c in s)
-    put(offset(0x9C9000),text('1 PLAYER    2 PLAYERS'))
     put(offset(0x9C9040),text('1 PLAYER GAME'))
     result=bytearray(source[0xB3000:0xB3780])
     # One score column, no opponent labels, judgement, or winner comparison.

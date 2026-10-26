@@ -434,10 +434,24 @@ mixed_sprites_done:
   rtl
 normal_second_marker:
   lda.w $1EF0
-  beq normal_second_marker_done
+  beq normal_count_marker
   jsr.w $DF82
-normal_second_marker_done:
-  rts
+normal_count_marker:
+  ; Same green arrow frame as PLAY TIME, placed before the selected numeral.
+  lda.w $1EF0
+  asl A
+  asl A
+  asl A
+  asl A
+  clc
+  adc.b #$30
+  sta.b $02
+  lda.b #$37
+  sta.b $04
+  lda.b #$32
+  sta.w $1DC9
+  lda.b #$0F
+  jmp.w $DB62
 
 org $80D000
 solo_display:
@@ -526,35 +540,38 @@ original_windows:
 org $9C8000
 draw_normal_count:
   php
-  rep.b #$20
   phx
+  sep.b #$20
+  lda.w $1EF1
+  beq normal_count_focused
+  lda.b #$00
+  bra normal_count_palette
+normal_count_focused:
+  lda.b #$08
+normal_count_palette:
+  sta.b $00
   ldx.w #$0000
 draw_normal_count_loop:
-  lda.l $9C9000,X
-  sta.l $7F0148,X
+  lda.l $7F0109,X
+  and.b #$E3
+  ora.b $00
+  sta.l $7F0109,X
+  lda.l $7F0189,X
+  and.b #$E3
+  ora.b $00
+  sta.l $7F0189,X
   inx
   inx
-  cpx.w #$002A
+  cpx.w #$0012
   bne draw_normal_count_loop
-  sep.b #$20
-  lda.w $1EF0
-  beq normal_highlight_one
-  ldx.w #$0160
-  bra normal_highlight
-normal_highlight_one:
-  ldx.w #$0148
-normal_highlight:
-  ldy.w #$0009
-normal_highlight_loop:
-  lda.l $7F0001,X
-  ora.b #$04
-  sta.l $7F0001,X
-  inx
-  inx
-  dey
-  bne normal_highlight_loop
-count_draw_done:
-  rep.b #$20
+  lda.l $7F0149
+  and.b #$E3
+  ora.b $00
+  sta.l $7F0149
+  lda.l $7F0159
+  and.b #$E3
+  ora.b $00
+  sta.l $7F0159
   plx
   plp
   rtl

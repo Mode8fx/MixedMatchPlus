@@ -36,6 +36,14 @@ def active(e,stage):
     until(e,lambda r:r[0x3f1]==stage and r[0x305]==5 and r[0x306]==1)
 
 
+def normal_menu_focus(e, cursor):
+    assert e.memory()[0x1ef1]==cursor
+    vram=e.memory(3)
+    for index,row in enumerate((4,8,14,19)):
+        border=struct.unpack_from('<H',vram,row*64+8)[0]
+        assert border&0x1c00==(0x0800 if index==cursor else 0), 'Wrong normal-menu header highlighted'
+
+
 def background_capture(e, stage, path):
     # Verify that both full decorative maps reached VRAM, including their side
     # extensions, rather than just changing window masks around the old maps.
@@ -87,10 +95,21 @@ def verify(core):
         try:
             menu(e,custom)
             assert e.memory()[0x1ef0]==0
+            if not custom:normal_menu_focus(e,0)
             e.screenshot(DEST/f'{prefix}-one-player-menu.png')
             press(e,7);assert e.memory()[0x1ef0]==1
             e.screenshot(DEST/f'{prefix}-two-player-menu.png')
             press(e,6);assert e.memory()[0x1ef0]==0
+            if not custom:
+                for cursor,address,name in ((1,0x1ea6,'handicap'),(2,0x1ea8,'time'),(3,0x1ea9,'music')):
+                    press(e,5);normal_menu_focus(e,cursor)
+                    before=e.memory()[address]
+                    press(e,7);assert e.memory()[address]!=before
+                    press(e,6);assert e.memory()[address]==before
+                    assert e.memory()[0x1ef0]==0
+                    e.screenshot(DEST/f'normal-{name}-focused-menu.png')
+                for _ in range(3):press(e,4)
+                normal_menu_focus(e,0)
             press(e,3);active(e,1)
             assert e.memory()[0x8f1]==0
             background_capture(e,1,DEST/f'{prefix}-solo-tetris.png')
