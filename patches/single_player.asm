@@ -65,6 +65,7 @@ normal_not_back:
   beq normal_not_up
   lda.w $1EF1
   beq normal_not_up
+  jsr.w $E433
   dec.w $1EF1
 normal_not_up:
   rep.b #$20
@@ -75,6 +76,7 @@ normal_not_up:
   lda.w $1EF1
   cmp.b #$03
   beq normal_not_down
+  jsr.w $E433
   inc.w $1EF1
 normal_not_down:
   lda.w $1EF1
@@ -136,6 +138,7 @@ custom_not_back:
   beq custom_not_up
   lda.w $1EF2
   beq custom_not_up
+  jsr.w $E433
   dec.w $1EF2
 custom_not_up:
   rep.b #$20
@@ -146,6 +149,7 @@ custom_not_up:
   lda.w $1EF2
   cmp.b #$08
   beq custom_not_down
+  jsr.w $E433
   inc.w $1EF2
 custom_not_down:
   lda.w $1EF2
@@ -182,17 +186,20 @@ custom_right:
   jsr.w $E02A
   bra custom_p2
 custom_music_input:
-  ; Native music handlers use TAY with a 16-bit index; clear hidden A high byte.
-  tdc
   lda.b $42
   and.b #$02
   beq custom_music_right
-  lda.b #$02
-  jsr.w $E536
-  bra custom_p2
+  lda.w $1EA9
+  dec A
+  bra custom_music_store
 custom_music_right:
-  lda.b #$02
-  jsr.w $E57E
+  lda.w $1EA9
+  inc A
+custom_music_store:
+  and.b #$03
+  sta.w $1EA9
+  jsr.w $E42C
+  jsl.l $80827B
 custom_p2:
   lda.w $1EF0
   beq custom_input_done
@@ -500,22 +507,6 @@ normal_count_marker:
   lda.b #$0F
   jmp.w $DB62
 
-; Custom uses the same shared BGM setting, arrow frame, and X coordinates as
-; the normal menu. Preserve its native blinking PRESS B TO EXIT sprite.
-custom_menu_sprites:
-  jsr.w $DF2B
-  tdc
-  lda.w $1EA9
-  tay
-  lda.w $DFD0,Y
-  sta.b $02
-  lda.b #$87
-  sta.b $04
-  lda.b #$32
-  sta.w $1DC9
-  lda.b #$0F
-  jmp.w $DB62
-
 org $80D000
 solo_display:
   php
@@ -644,6 +635,7 @@ draw_custom_count:
   php
   rep.b #$20
   phx
+  phy
   ldx.w #$0000
 draw_custom_count_loop:
   lda.l $9C9040,X
@@ -673,27 +665,35 @@ custom_count_draw_done:
   sta.l $7F01B2
   lda.w #$2119
   sta.l $7F01B4
-  ; Focus the new setting using the same palette as selected numeric fields.
+  ; One four-character music value, highlighted like the other custom fields.
   lda.w $1EF2
   and.w #$00FF
   cmp.w #$0007
   bne custom_music_unfocused
-  lda.w #$1400
+  lda.w #$0400
   bra custom_music_palette
 custom_music_unfocused:
-  lda.w #$0400
+  lda.w #$0000
 custom_music_palette:
   sta.b $00
-  ldx.w #$0000
-custom_music_highlight:
-  lda.l $7F040A,X
-  and.w #$E3FF
+  lda.w $1EA9
+  and.w #$00FF
+  asl A
+  asl A
+  asl A
+  tax
+  lda.l $9C9060,X
   ora.b $00
-  sta.l $7F040A,X
-  inx
-  inx
-  cpx.w #$0018
-  bne custom_music_highlight
+  sta.l $7F046A
+  lda.l $9C9062,X
+  ora.b $00
+  sta.l $7F046C
+  lda.l $9C9064,X
+  ora.b $00
+  sta.l $7F046E
+  lda.l $9C9066,X
+  ora.b $00
+  sta.l $7F0470
   sep.b #$20
   lda.w $1EF0
   bne custom_two_columns_done
@@ -706,7 +706,7 @@ custom_hide_second_column:
   sta.l $7F0272,X
   sta.l $7F02B2,X
   sta.l $7F0332,X
-  sta.l $7F0372,X
+  sta.l $7F0370,X
   sta.l $7F03F2,X
   inx
   inx
@@ -714,10 +714,10 @@ custom_hide_second_column:
   bne custom_hide_second_column
 custom_two_columns_done:
   rep.b #$20
+  ply
   plx
   plp
   rtl
-
 org $9C8200
 solo_results_template:
   php

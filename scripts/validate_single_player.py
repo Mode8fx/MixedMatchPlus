@@ -45,6 +45,35 @@ def normal_menu_focus(e, cursor):
         assert border&0x1c00==(selected if index==cursor else 0), 'Wrong normal-menu header highlighted'
 
 
+def verify_navigation_sound(core):
+    # Inspect the actual native SFX queue immediately after input. The title
+    # and both menus use audio bank 3; navigation must enqueue the same effect.
+    def event(e,button,port=0):
+        e.run(30)
+        assert e.memory()[0xc60:0xc64]==b'\xff'*4
+        e.run(1,() if port else (button,),(button,) if port else ())
+        queue=e.memory()[0xc60:0xc64]
+        e.run(1)
+        return queue
+
+    for screen in ('title','normal','custom'):
+        e=Emulator(core,OUTPUT)
+        try:
+            if screen=='title':
+                e.run(600);press(e,3);e.run(120);press(e,5);press(e,3);e.run(120)
+            else:menu(e,screen=='custom')
+            assert e.memory()[0xc57]==3
+            for button in (5,4):assert 2 in event(e,button), f'{screen}: P1 navigation sound missing'
+            assert 2 not in event(e,4), f'{screen}: sound at a fixed upper boundary'
+            if screen!='title':
+                press(e,7);assert e.memory()[0x1ef0]==1
+                for button in (5,4):assert 2 in event(e,button), f'{screen}: P1 two-player navigation silent'
+                if screen=='custom':
+                    for button in (5,4):assert 2 in event(e,button,1), 'Native P2 navigation sound changed'
+        finally:e.close()
+    print('PASS P1 up/down SFX matches Mixed Match title in both menus and player counts; native P2 sound intact')
+
+
 def normal_menu_spacing(e, source):
     vram=e.memory(3)
     rom=OUTPUT.read_bytes()
@@ -108,20 +137,48 @@ def normal_menu_spacing(e, source):
     assert r[0x1504:0x1508]==bytes(4), 'Black shadow colors changed'
 
 
+def custom_speed_visibility(e):
+    assert e.memory()[0x1ef0]==0
+    old=e.memory()[0x1eb3:0x1eb4]
+    p1=e.memory(3)[13*64+40:13*64+46]
+    for speed,name in enumerate(('lo','med','hi')):
+        e.write_memory(0x1eb3,bytes([speed]));e.run(3)
+        assert e.memory(3)[13*64+48:13*64+54]==b'\x00\x20'*3, 'P2 speed letter survived in solo menu'
+        assert e.memory(3)[13*64+40:13*64+46]==p1, 'P1 speed was damaged while hiding P2'
+        e.screenshot(DEST/f'custom-solo-p2-speed-{name}.png')
+    e.write_memory(0x1eb3,old);e.run(3)
+
+
+def custom_music_layout(e,source):
+    vram=e.memory(3)
+    entries=struct.unpack_from('<32H',vram,17*64)
+    r=e.memory();value=('BGM1','BGM2','BGM3','OFF ')[r[0x1ea9]]
+    expected='MUSIC SELECT  '+value
+    tiles=[0 if c==' ' else 0x100+(int(c) if c.isdigit() else ord(c)-55) for c in expected]
+    assert [v&0x3ff for v in entries[7:25]]==tiles, 'Wrong compact music label/value'
+    assert 7*8==256-25*8, 'Compact music row is not centered'
+    for col in range(7,19):assert entries[col]&0x1c00==0, 'Music label color changed'
+    for col in range(21,25):
+        assert entries[col]&0x1c00==(0x0400 if r[0x1ef2]==7 else 0), 'Music value highlight is wrong'
+    end=int.from_bytes(r[0x1dc5:0x1dc7],'little')
+    assert not any(r[i+2:i+4]==b'\x60\x32' for i in range(0x1900,end,4)), 'Custom music arrow remained'
+    assert entries[2]==entries[29]==0x2c0b, 'Music row damaged the menu frame'
+
+
 def custom_menu_layout(e, source, two_players=False):
     vram=e.memory(3)
     # The original frame's lower corners and bottom must be back at rows 22/23.
     assert vram[22*64:24*64]==source[0xae800+22*64:0xae800+24*64]
-    for row in (3,5,18,20):
+    for row in (3,5,16,18,20):
         assert struct.unpack_from('<26H',vram,row*64+6)==(0x2000,)*26, 'Custom menu gap or spare area occupied'
     # Every moved setting must both accept input and redraw in its new location.
     fields=((8,0x1eaa),(9,0x1eac),(10,0x1eae),(12,0x1eb0),(13,0x1eb2),(15,0x1eb4),(19,0x1eb6))
     for index,(row,address) in enumerate(fields[:6] if two_players else fields):
         if two_players:
             assert e.memory()[0xc09]==index
-            address+=1;col=25
+            address+=1;col=24 if index==4 else 25
         else:
-            press(e,5);col=14 if index==6 else 21
+            press(e,5);col=14 if index==6 else 20 if index==4 else 21
             if index==6:press(e,5)  # Music is between the final level and time.
             assert e.memory()[0x1ef2]==(8 if index==6 else index+1)
         e.run(2)  # Native drawing and NMI upload follow input on later frames.
@@ -143,20 +200,23 @@ def custom_menu_layout(e, source, two_players=False):
         e.screenshot(DEST/'custom-time-focused-menu.png')
         press(e,4);assert e.memory()[0x1ef2]==7
         e.run(2)
+        custom_music_layout(e,source)
         native_settings=e.memory()[0x1eaa:0x1eb7]
-        for _ in range(3):press(e,6)
+        while e.memory()[0x1ea9]:press(e,6)
         for setting,name in enumerate(('bgm1','bgm2','bgm3','off')):
             if setting:press(e,7)
             e.run(3)
             assert e.memory()[0x1ea9]==setting
-            # Check the actual native arrow sprite before each BGM/OFF label.
-            r=e.memory();oam=r[0x1900:int.from_bytes(r[0x1dc5:0x1dc7],'little')]
-            assert bytes((0x30+setting*0x30,0x8f,0x60,0x32)) in [oam[i:i+4] for i in range(0,len(oam),4)]
+            custom_music_layout(e,source)
             assert e.memory()[0x1eaa:0x1eb7]==native_settings
             e.screenshot(DEST/f'custom-music-{name}-menu.png')
-        press(e,7);assert e.memory()[0x1ea9]==3
+            if setting==0:e.screenshot(DEST/'custom-music-focused-menu.png')
+        press(e,7);assert e.memory()[0x1ea9]==0
+        e.run(3);custom_music_layout(e,source)
+        press(e,6);assert e.memory()[0x1ea9]==3
+        e.run(3);custom_music_layout(e,source)
         for _ in range(3):press(e,6)
-        press(e,6);assert e.memory()[0x1ea9]==0
+        assert e.memory()[0x1ea9]==0
         for _ in range(7):press(e,4)
         assert e.memory()[0x1ef2]==0
 
@@ -206,6 +266,7 @@ def verify(core):
     complement,checksum=struct.unpack_from('<HH',patched,0x7fdc)
     assert complement^checksum==0xffff and sum(patched)&0xffff==checksum
     DEST.mkdir(parents=True,exist_ok=True)
+    verify_navigation_sound(core)
     for custom in (False,True):
         prefix='custom' if custom else 'normal'
         e=Emulator(core,OUTPUT)
@@ -216,7 +277,9 @@ def verify(core):
                 normal_menu_focus(e,0)
                 normal_menu_spacing(e,source)
             e.screenshot(DEST/f'{prefix}-one-player-menu.png')
-            if custom:custom_menu_layout(e,source)
+            if custom:
+                custom_speed_visibility(e)
+                custom_menu_layout(e,source)
             press(e,7);assert e.memory()[0x1ef0]==1
             if not custom:
                 e.run(2);normal_menu_spacing(e,source)

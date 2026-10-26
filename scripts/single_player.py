@@ -5,6 +5,7 @@ from assemble65816 import assemble
 from snes_disasm import offset
 from build_rom import decode_tile, encode_tile
 from normal_menu import build_normal_menu
+from custom_menu import build_music_row
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -49,7 +50,6 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     hook(0x8AD027,'mixed_init_two',9)
     hook(0x83DD41,'mixed_sprites',4,0x5c)
     hook(0x83DF60,'normal_second_marker')
-    hook(0x83DF27,'custom_menu_sprites')
     hook(0x808945,'solo_display')
     hook(0x808951,'solo_windows')
     hook(0x8AD03C,'solo_initial_maps')
@@ -77,16 +77,14 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     custom_rows={3:6,4:7,6:8,7:9,8:10,10:11,12:12,13:13,15:14,17:15,18:18,19:19,20:20,21:21}
     for row in range(3,22):new[row]=rows[5]
     for old,dest in custom_rows.items():new[dest]=rows[old]
-    line=bytearray(new[16]);heading=text('MUSIC SELECT')
-    line[10:10+len(heading)]=b''.join(struct.pack('<H',v|0x0400) for (v,) in struct.iter_unpack('<H',heading))
-    new[16]=bytes(line)
-    new[17]=source[0xb2000+22*64:0xb2000+23*64]
+    new[17]=build_music_row(source)
     put(base,b''.join(new))
     off=offset(0x8AE3B8)
     values=struct.unpack_from('<13H',source,off)
     put(off,struct.pack('<13H',*(custom_rows[v//64]*64+v%64 for v in values)))
 
     put(offset(0x9C9040),text('1 PLAYER GAME'))
+    put(offset(0x9C9060),text('BGM1BGM2BGM3OFF '))
     result=bytearray(source[0xB3000:0xB3780])
     # One score column, no opponent labels, judgement, or winner comparison.
     for row in range(4,28):
