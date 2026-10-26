@@ -225,7 +225,16 @@ def background_capture(e, stage, path):
     # Verify that both full decorative maps reached VRAM, including their side
     # extensions, rather than just changing window masks around the old maps.
     start={1:0xe4000,3:0xe5000,5:0xe6000}[stage]
-    assert e.memory(3)[0x800:0x1800]==OUTPUT.read_bytes()[start:start+0x1000]
+    # The timer locally replaces BG2 and its BG3 color layer at the bottom.
+    expected=bytearray(OUTPUT.read_bytes()[start:start+0x1000])
+    actual=bytearray(e.memory(3)[0x800:0x1800])
+    from validate_timer import timer_column
+    col=timer_column(e.memory())
+    for row in range(23,27):
+        for base in (0,0x800):
+            off=base+row*64+col*2
+            expected[off:off+12]=actual[off:off+12]
+    assert actual==expected
     assert e.memory(3)[0x7900:0x7920]==bytes(32), 'Solo checkerboard divider returned'
     # Check the embedded pieces as rendered graphics, not just the standalone
     # separator tile. All panel/frame pixels outside the strip must survive.
@@ -267,6 +276,8 @@ def verify(core):
     assert complement^checksum==0xffff and sum(patched)&0xffff==checksum
     DEST.mkdir(parents=True,exist_ok=True)
     verify_navigation_sound(core)
+    from validate_timer import verify_timer
+    verify_timer(core)
     for custom in (False,True):
         prefix='custom' if custom else 'normal'
         e=Emulator(core,OUTPUT)
@@ -385,6 +396,7 @@ def verify(core):
     # Global NMI hooks must leave the two standalone game modes visually intact.
     for name,choose in (('tetris',None),('dr-mario',7)):
         pictures=[]
+        gameplay_vram=[]
         for rom,prefix in ((SOURCE,'original-'),(OUTPUT,'')):
             e=Emulator(core,rom)
             try:
@@ -392,9 +404,17 @@ def verify(core):
                 if choose is not None:press(e,choose)
                 press(e,3);e.run(120);press(e,3);e.run(120)
                 pictures.append(e.screenshot(DEST/f'{prefix}standalone-{name}.png'))
+                # Start standalone play as well: its decorative maps and all
+                # graphics must retain their native bytes. Live pill/virus RNG
+                # can differ with CPU timing, so do not compare the board pixels.
+                press(e,3);e.run(120);press(e,3);e.run(120)
+                gameplay_vram.append(e.memory(3))
+                e.screenshot(DEST/f'{prefix}standalone-{name}-play.png')
             finally:e.close()
         assert ImageChops.difference(*pictures).getbbox() is None, f'Standalone {name} changed'
-    print('PASS standalone Tetris and Dr. Mario menu regression captures')
+        for start,end in ((0x800,0x1800),(0x2000,0x10000)):
+            assert gameplay_vram[0][start:end]==gameplay_vram[1][start:end], f'Standalone {name} background/graphics changed'
+    print('PASS standalone Tetris and Dr. Mario menu captures and gameplay background/graphics')
     assert SOURCE.read_bytes()==source
     print('PASS deterministic build, checksum, original ROM intact')
 

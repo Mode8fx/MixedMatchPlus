@@ -6,6 +6,7 @@ from snes_disasm import offset
 from build_rom import decode_tile, encode_tile
 from normal_menu import build_normal_menu
 from custom_menu import build_music_row
+from timer import build_timer
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -52,8 +53,27 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     hook(0x83DF60,'normal_second_marker')
     hook(0x808945,'solo_display')
     hook(0x808951,'solo_windows')
+    hook(0x80894B,'mixed_timer_display')
     hook(0x8AD03C,'solo_initial_maps')
     put(offset(0x8AD36E),struct.pack('<H',labels['solo_reload_init'] & 0xffff))
+
+    graphics,frame,minutes,seconds=build_timer(source)
+    for pc,data in ((0x9D9000,graphics),(0x9C9300,frame),
+                    (0x9C9400,minutes),(0x9CA000,seconds)):
+        off=offset(pc)
+        if source[off:off+len(data)]!=b'\xff'*len(data):
+            raise ValueError(f'Timer extension space is not blank at ${pc:06X}')
+        put(off,data)
+    put(offset(labels['timer_font_length'])+1,struct.pack('<H',len(graphics)))
+
+    # These native color maps belong to Mixed Match. Keep the timer's subscreen
+    # black in both halves, including when players change games independently.
+    for base in (0xAB800,0xAC000,0xAC800):
+        entries=struct.unpack_from('<1024H',source,base)
+        if any(entry&0x3ff==0x1ff for entry in entries):
+            raise ValueError('Mixed Match already uses reserved BG3 tile $1FF')
+        for row in range(23,27):
+            put(base+row*64+26,struct.pack('<6H',*([0x1ff]*6)))
 
     # Pixel layout, graphics, and focus cells come from the same native assets.
     menu_map,graphics,highlights=build_normal_menu(source)
@@ -147,6 +167,9 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
                 struct.pack_into('<H',bg2,index,tile2)
                 struct.pack_into('<H',bg3,index,tile3)
         maps=bg2+bg3
+        col=14 if stage==3 else 13
+        for row in range(23,27):
+            struct.pack_into('<6H',maps,0x800+row*64+col*2,*([0x1ff]*6))
         off=offset(destination)
         if source[off:off+len(maps)]!=b'\xff'*len(maps):
             raise ValueError(f'Solo background space is not blank at {destination:06X}')

@@ -245,6 +245,7 @@ mixed_controls_two:
 mixed_controls_done:
   rts
 mixed_init_two:
+  stz.w $1EF4
   lda.w $1EF0
   beq mixed_clear_two
   ldx.w #$0500
@@ -264,6 +265,7 @@ mixed_clear_two_loop:
   sep.b #$20
   rts
 mixed_finish:
+  jsl.l timer_prepare
   lda.w $1EF0
   bne mixed_two_finish
   lda.w $03F2
@@ -394,6 +396,7 @@ solo_results_draw:
 ; layers with full-width solo maps after its normal field/graphics setup.
 solo_initial_maps:
   jsr.w $D213
+  jsl.l timer_load
   lda.w $1EF0
   bne solo_initial_maps_done
   ; The shared foreground tile $2C8 is the two-player checkerboard divider.
@@ -590,6 +593,248 @@ solo_windows:
   rts
 original_windows:
   jmp.w $8D47
+
+; Run after the native queued VRAM transfers and palette DMA, before display
+; enable. Only 48 bytes are transferred; tile selection and foreground clearing
+; happen in game logic. BG2 lies outside the solo BG1/OBJ clipping window.
+org $80D100
+mixed_timer_display:
+  jsr.w $8B57
+  php
+  rep.b #$30
+  pha
+  phx
+  phy
+  sep.b #$20
+  lda.w $0BAF
+  cmp.b #$30
+  bne mixed_timer_display_done
+  lda.w $1EF4
+  beq mixed_timer_display_done
+  jsl.l timer_transfer
+mixed_timer_display_done:
+  rep.b #$30
+  ply
+  plx
+  pla
+  plp
+  rts
+
+org $9C8500
+timer_load:
+  lda.b #$9D
+  pha
+  pea.w $9000
+  pea.w $4000
+timer_font_length:
+  pea.w $0000
+  jsl.l $808B0B
+  ; A transparent BG3 tile for the panel's subscreen cutout. Otherwise native
+  ; background subtraction tints the white digits green/pink/gold.
+  lda.b #$8E
+  pha
+  pea.w $8000
+  pea.w $5FF8
+  pea.w $0010
+  jsl.l $808B0B
+  jsl.l timer_prepare
+  lda.b #$01
+  sta.w $1EF4
+  rtl
+
+; Prepare pixels/map words during game logic. Vblank only performs four short
+; DMA transfers, preserving the native graphics and palette transfer budget.
+timer_prepare:
+  php
+  rep.b #$30
+  phx
+  phy
+  lda.b $00
+  pha
+  lda.b $02
+  pha
+  lda.b $04
+  pha
+  lda.w $1EF0
+  and.w #$00FF
+  bne timer_two_position
+  ; Panel top-left: solo (184,184), two players (104,184). BG2 scroll
+  ; shifts Tetris by 80px and Dr. Mario by 72px, so solo uses columns 13/14.
+  lda.w #$06ED
+  ldx.w $03F1
+  cpx.w #$0003
+  bne timer_position_ready
+  inc A
+  bra timer_position_ready
+timer_two_position:
+  lda.w #$06ED
+timer_position_ready:
+  sta.b $00
+  sta.w $1EFA
+  ; Clear the foreground locally before its existing full-map DMA. In solo
+  ; this is outside the clipped field; in two-player it removes the divider.
+  sec
+  sbc.w #$0400
+  asl A
+  tax
+  ldy.w #$0004
+timer_clear_foreground_row:
+  lda.w #$0000
+  sta.l $7F0000,X
+  sta.l $7F0002,X
+  sta.l $7F0004,X
+  sta.l $7F0006,X
+  sta.l $7F0008,X
+  sta.l $7F000A,X
+  txa
+  clc
+  adc.w #$0040
+  tax
+  dey
+  bne timer_clear_foreground_row
+  ; Binary engine clock: minutes 0..30, seconds 0..59. Clamp a transient
+  ; underflow rather than indexing beyond the tables during timer expiry.
+  lda.w $040A
+  and.w #$00FF
+  cmp.w #$001F
+  bcc timer_minutes_valid
+  lda.w #$0000
+timer_minutes_valid:
+  sta.b $02
+  asl A
+  clc
+  adc.b $02
+  asl A
+  asl A
+  sta.b $02
+  lda.w $0409
+  and.w #$00FF
+  cmp.w #$003C
+  bcc timer_seconds_valid
+  lda.w #$0000
+timer_seconds_valid:
+  sta.b $04
+  asl A
+  clc
+  adc.b $04
+  asl A
+  asl A
+  sta.b $04
+  ldx.w #$0000
+timer_frame_buffer:
+  lda.l $9C9300,X
+  sta.l $7F0D00,X
+  lda.l $9C930C,X
+  sta.l $7F0D24,X
+  inx
+  inx
+  cpx.w #$000C
+  bne timer_frame_buffer
+  ldx.b $02
+  lda.l $9C9400,X
+  sta.l $7F0D0C
+  lda.l $9C9402,X
+  sta.l $7F0D0E
+  lda.l $9C9404,X
+  sta.l $7F0D10
+  lda.l $9C9406,X
+  sta.l $7F0D18
+  lda.l $9C9408,X
+  sta.l $7F0D1A
+  lda.l $9C940A,X
+  sta.l $7F0D1C
+  ldx.b $04
+  lda.l $9CA000,X
+  sta.l $7F0D12
+  lda.l $9CA002,X
+  sta.l $7F0D14
+  lda.l $9CA004,X
+  sta.l $7F0D16
+  lda.l $9CA006,X
+  sta.l $7F0D1E
+  lda.l $9CA008,X
+  sta.l $7F0D20
+  lda.l $9CA00A,X
+  sta.l $7F0D22
+  pla
+  sta.b $04
+  pla
+  sta.b $02
+  pla
+  sta.b $00
+  ply
+  plx
+  plp
+  rtl
+
+timer_transfer:
+  ; Palette/transition frames sometimes consume the end of vblank. Retain the
+  ; previous timer image on those frames rather than writing VRAM during play.
+  ; The next available frame uses the current native clock, with no lost ticks.
+  lda.b $32
+  bmi timer_transfer_ready
+  lda.w $4212
+  bpl timer_transfer_done
+  lda.w $213F
+  lda.w $2137
+  lda.w $213D
+  pha
+  lda.w $213D
+  and.b #$01
+  beq timer_transfer_low_line
+  pla
+  cmp.b #$03
+  bcs timer_transfer_done
+  bra timer_transfer_ready
+timer_transfer_low_line:
+  pla
+timer_transfer_ready:
+  lda.b #$80
+  sta.w $2115
+  ldx.w #$1801
+  stx.w $4300
+  ldx.w #$0D00
+  stx.w $4302
+  lda.b #$7F
+  sta.w $4304
+  ldx.w $1EFA
+  ldy.w #$000C
+  stx.w $2116
+  sty.w $4305
+  lda.b #$01
+  sta.w $420B
+  rep.b #$20
+  txa
+  clc
+  adc.w #$0020
+  tax
+  sep.b #$20
+  stx.w $2116
+  sty.w $4305
+  lda.b #$01
+  sta.w $420B
+  rep.b #$20
+  txa
+  clc
+  adc.w #$0020
+  tax
+  sep.b #$20
+  stx.w $2116
+  sty.w $4305
+  lda.b #$01
+  sta.w $420B
+  rep.b #$20
+  txa
+  clc
+  adc.w #$0020
+  tax
+  sep.b #$20
+  stx.w $2116
+  sty.w $4305
+  lda.b #$01
+  sta.w $420B
+timer_transfer_done:
+  rtl
 
 org $9C8000
 draw_normal_count:
