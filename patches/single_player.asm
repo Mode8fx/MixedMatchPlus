@@ -6,13 +6,38 @@ org $8AEA00
 normal_init:
   inc.w $0305
   stz.w $1EF1
+  stz.w $1EF0
   lda.b #$01
   rtl
 custom_init:
   inc.w $0305
   stz.w $1EF2
+  stz.w $1EF0
   lda.b #$00
   rtl
+
+normal_initial_maps:
+  jsr.w $E721
+  ; The normal menu uses pixel-shifted choices and setting headers.
+  ; Load with the native maps while the screen is forced blank, before fade-in.
+  lda.b #$9D
+  pha
+  pea.w $8000
+  pea.w $3800
+normal_font_length:
+  pea.w $0000 ; Filled by the build with the generated graphics length.
+  jsl.l $808B0B
+  ; Palette 4 has the native white lettering plus animated focus-border colors.
+  rep.b #$20
+  ldx.w #$001E
+normal_focus_palette_copy:
+  lda.w $1500,X
+  sta.w $1580,X
+  dex
+  dex
+  bpl normal_focus_palette_copy
+  sep.b #$20
+  rts
 
 normal_input:
   phk
@@ -82,7 +107,6 @@ normal_input_done:
   rts
 
 normal_draw:
-  jsr.w $E792
   jsl.l draw_normal_count
   rts
 
@@ -120,11 +144,19 @@ custom_not_up:
   sep.b #$20
   beq custom_not_down
   lda.w $1EF2
-  cmp.b #$07
+  cmp.b #$08
   beq custom_not_down
   inc.w $1EF2
 custom_not_down:
   lda.w $1EF2
+  cmp.b #$07
+  bcc custom_cursor_mapped
+  beq custom_music_cursor
+  lda.b #$07
+  bra custom_cursor_mapped
+custom_music_cursor:
+  lda.b #$00
+custom_cursor_mapped:
   dec A
   sta.w $0C08
   rep.b #$20
@@ -139,6 +171,8 @@ custom_not_down:
   sta.w $1EF0
   bra custom_p2
 custom_setting:
+  cmp.b #$07
+  beq custom_music_input
   lda.b $42
   and.b #$02
   beq custom_right
@@ -146,6 +180,19 @@ custom_setting:
   bra custom_p2
 custom_right:
   jsr.w $E02A
+  bra custom_p2
+custom_music_input:
+  ; Native music handlers use TAY with a 16-bit index; clear hidden A high byte.
+  tdc
+  lda.b $42
+  and.b #$02
+  beq custom_music_right
+  lda.b #$02
+  jsr.w $E536
+  bra custom_p2
+custom_music_right:
+  lda.b #$02
+  jsr.w $E57E
 custom_p2:
   lda.w $1EF0
   beq custom_input_done
@@ -446,7 +493,23 @@ normal_count_marker:
   clc
   adc.b #$30
   sta.b $02
-  lda.b #$37
+  lda.b #$39
+  sta.b $04
+  lda.b #$32
+  sta.w $1DC9
+  lda.b #$0F
+  jmp.w $DB62
+
+; Custom uses the same shared BGM setting, arrow frame, and X coordinates as
+; the normal menu. Preserve its native blinking PRESS B TO EXIT sprite.
+custom_menu_sprites:
+  jsr.w $DF2B
+  tdc
+  lda.w $1EA9
+  tay
+  lda.w $DFD0,Y
+  sta.b $02
+  lda.b #$87
   sta.b $04
   lda.b #$32
   sta.w $1DC9
@@ -572,6 +635,7 @@ draw_normal_count_loop:
   and.b #$E3
   ora.b $00
   sta.l $7F0159
+  jsl.l draw_normal_frames
   plx
   plp
   rtl
@@ -606,9 +670,30 @@ custom_count_highlight:
 custom_count_draw_done:
   rep.b #$20
   lda.w #$2102
-  sta.l $7F0172
+  sta.l $7F01B2
   lda.w #$2119
-  sta.l $7F0174
+  sta.l $7F01B4
+  ; Focus the new setting using the same palette as selected numeric fields.
+  lda.w $1EF2
+  and.w #$00FF
+  cmp.w #$0007
+  bne custom_music_unfocused
+  lda.w #$1400
+  bra custom_music_palette
+custom_music_unfocused:
+  lda.w #$0400
+custom_music_palette:
+  sta.b $00
+  ldx.w #$0000
+custom_music_highlight:
+  lda.l $7F040A,X
+  and.w #$E3FF
+  ora.b $00
+  sta.l $7F040A,X
+  inx
+  inx
+  cpx.w #$0018
+  bne custom_music_highlight
   sep.b #$20
   lda.w $1EF0
   bne custom_two_columns_done
@@ -616,13 +701,13 @@ custom_count_draw_done:
   ldx.w #$0000
   lda.w #$2000
 custom_hide_second_column:
-  sta.l $7F0172,X
+  sta.l $7F01B2,X
   sta.l $7F0232,X
   sta.l $7F0272,X
   sta.l $7F02B2,X
-  sta.l $7F03B2,X
+  sta.l $7F0332,X
+  sta.l $7F0372,X
   sta.l $7F03F2,X
-  sta.l $7F04F2,X
   inx
   inx
   cpx.w #$0006
@@ -650,6 +735,73 @@ solo_results_copy:
   plp
   rtl
 
+org $9C8400
+draw_normal_frames:
+  php
+  rep.b #$30
+  phx
+  phy
+  ; Keep the normal menu's unused palette 4 synchronized with native palette 2
+  ; border animation, preserving palette 0's white text in mixed border tiles.
+  lda.w $1548
+  cmp.w $1588
+  bne normal_focus_colors
+  lda.w $154A
+  cmp.w $158A
+  bne normal_focus_colors
+  lda.w $154C
+  cmp.w $158C
+  beq normal_focus_cells
+normal_focus_colors:
+  lda.w $1548
+  sta.w $1588
+  lda.w $154A
+  sta.w $158A
+  lda.w $154C
+  sta.w $158C
+  sep.b #$20
+  lda.b #$01
+  sta.w $1DC2
+  rep.b #$20
+normal_focus_cells:
+  lda.w $1EF1
+  and.w #$00FF
+  sta.b $02
+  ldx.w #$0000
+normal_frame_cell:
+  lda.l $9C9100,X
+  cmp.w #$FFFF
+  beq normal_frames_done
+  tay
+  sep.b #$20
+  lda.l $9C9102,X
+  cmp.b $02
+  rep.b #$20
+  bne normal_frame_unfocused
+  lda.w #$1000
+  bra normal_frame_set
+normal_frame_unfocused:
+  lda.w #$0000
+normal_frame_set:
+  sta.b $00
+  phx
+  tyx
+  lda.l $7F0000,X
+  and.w #$E3FF
+  ora.b $00
+  sta.l $7F0000,X
+  plx
+  inx
+  inx
+  inx
+  bra normal_frame_cell
+normal_frames_done:
+  ply
+  plx
+  plp
+  rtl
+
+org $9C8219
 solo_results_scores:
   php
   rep.b #$20

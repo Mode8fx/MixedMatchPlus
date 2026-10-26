@@ -39,9 +39,126 @@ def active(e,stage):
 def normal_menu_focus(e, cursor):
     assert e.memory()[0x1ef1]==cursor
     vram=e.memory(3)
-    for index,row in enumerate((4,8,14,19)):
+    for index,row in enumerate((4,9,16,20)):
         border=struct.unpack_from('<H',vram,row*64+8)[0]
-        assert border&0x1c00==(0x0800 if index==cursor else 0), 'Wrong normal-menu header highlighted'
+        selected=0x0800 if index==0 else 0x1000
+        assert border&0x1c00==(selected if index==cursor else 0), 'Wrong normal-menu header highlighted'
+
+
+def normal_menu_spacing(e, source):
+    vram=e.memory(3)
+    rom=OUTPUT.read_bytes()
+    menu_tiles=[entry&0x3ff for entry in struct.unpack_from('<1024H',rom,0xb2000)]
+    size=(max(menu_tiles)-0x280+1)*32
+    assert vram[0x7000:0x7000+size]==rom[0xe8000:0xe8000+size], 'Normal menu graphics were not loaded'
+    plane=[[0]*256 for _ in range(256)];cache={}
+    for row in range(32):
+        for col in range(32):
+            entry=struct.unpack_from('<H',vram,row*64+col*2)[0];tile=entry&0x3ff
+            if tile not in cache:cache[tile]=decode_tile(vram,tile,0x2000)
+            pixels=cache[tile]
+            if entry&0x4000:pixels=[line[::-1] for line in pixels]
+            if entry&0x8000:pixels=pixels[::-1]
+            for y,line in enumerate(pixels):plane[row*8+y][col*8:col*8+8]=line
+
+    def bounds(x0,y0,x1,y1):
+        # The font's last row contains only black shadow, not visible lettering.
+        # Palette entries 2/3 are black; count the visible row for pixel gaps.
+        ys=[y for y in range(y0,y1) if any(p not in (0,2,3) for p in plane[y][x0:x1])]
+        return min(ys),max(ys)
+
+    def native_row(row,col,width):
+        tiles=[]
+        for x in range(col,col+width):
+            entry=struct.unpack_from('<H',source,0xb2000+row*64+x*2)[0];tile=entry&0x3ff
+            pixels=decode_tile(source,tile-0x100,0x42000) if tile>=0x100 else decode_tile(source,tile,0x3e000)
+            if entry&0x4000:pixels=[line[::-1] for line in pixels]
+            if entry&0x8000:pixels=pixels[::-1]
+            tiles.append(pixels)
+        return [[p for tile in tiles for p in tile[y]] for y in range(8)]
+
+    for old,width,y in ((4,10,71),(12,11,128),(18,14,163)):
+        pixels=sum((native_row(row,4,width) for row in range(old,old+3)),[])[4:20]
+        assert [line[32:32+width*8] for line in plane[y:y+16]]==pixels, 'Header pixels changed'
+    for old,y in ((9,104),(16,150),(22,185)):
+        assert [line[56:224] for line in plane[y:y+8]]==native_row(old,7,21), 'Choice glyph pixels changed'
+    r=e.memory();end=int.from_bytes(r[0x1dc5:0x1dc7],'little')
+    sprites=[r[i:i+4] for i in range(0x1900,end,4)]
+
+    def sprite_bounds(group):
+        ys=[]
+        for obj in group:
+            pixels=decode_tile(vram,obj[2]+(obj[3]&1)*256,0x8000)
+            if obj[3]&0x80:pixels=pixels[::-1]
+            ys.extend(obj[1]+y-7 for y,line in enumerate(pixels) if any(line))
+        return min(ys),max(ys)
+
+    p1=sprite_bounds(sprites[:8]);assert p1==(91,99)
+    p2=sprite_bounds(sprites[8:16]) if r[0x1ef0] else None
+    if p2:assert p2==(115,123)
+    rows=[bounds(32,32,104,54),bounds(56,54,152,68),bounds(32,68,112,90),p1,
+          bounds(56,102,200,114),p2,bounds(32,126,120,146),bounds(56,148,200,160),
+          bounds(32,161,144,181),bounds(56,183,224,196)]
+    assert rows[:3]==[(36,51),(58,64),(71,86)]
+    for above,below,gap in zip(rows,rows[1:],(6,6,4,4,4,4,6,6,6)):
+        if above is not None and below is not None:
+            assert below[0]-above[1]-1==gap, f'Wrong normal-menu gap: {above} to {below}'
+    assert r[0x1580:0x1588]==r[0x1500:0x1508], 'Focused header text palette changed'
+    assert r[0x1588:0x158e]==r[0x1548:0x154e], 'Focused header border colors changed'
+    assert r[0x1504:0x1508]==bytes(4), 'Black shadow colors changed'
+
+
+def custom_menu_layout(e, source, two_players=False):
+    vram=e.memory(3)
+    # The original frame's lower corners and bottom must be back at rows 22/23.
+    assert vram[22*64:24*64]==source[0xae800+22*64:0xae800+24*64]
+    for row in (3,5,18,20):
+        assert struct.unpack_from('<26H',vram,row*64+6)==(0x2000,)*26, 'Custom menu gap or spare area occupied'
+    # Every moved setting must both accept input and redraw in its new location.
+    fields=((8,0x1eaa),(9,0x1eac),(10,0x1eae),(12,0x1eb0),(13,0x1eb2),(15,0x1eb4),(19,0x1eb6))
+    for index,(row,address) in enumerate(fields[:6] if two_players else fields):
+        if two_players:
+            assert e.memory()[0xc09]==index
+            address+=1;col=25
+        else:
+            press(e,5);col=14 if index==6 else 21
+            if index==6:press(e,5)  # Music is between the final level and time.
+            assert e.memory()[0x1ef2]==(8 if index==6 else index+1)
+        e.run(2)  # Native drawing and NMI upload follow input on later frames.
+        start=row*64+col*2
+        width=6 if row==13 else 4
+        before_value=e.memory()[address];before_tiles=e.memory(3)[start:start+width]
+        if two_players:e.run(1,(),(7,));e.run(1)
+        else:press(e,7)
+        e.run(2)
+        assert e.memory()[address]!=before_value
+        assert e.memory(3)[start:start+width]!=before_tiles, f'Custom setting {index} redrew at wrong position'
+        if two_players:e.run(1,(),(6,));e.run(1)
+        else:press(e,6)
+        e.run(2)
+        assert e.memory()[address]==before_value
+        assert e.memory(3)[start:start+width]==before_tiles
+        if two_players:e.run(1,(),(5,));e.run(1)
+    if not two_players:
+        e.screenshot(DEST/'custom-time-focused-menu.png')
+        press(e,4);assert e.memory()[0x1ef2]==7
+        e.run(2)
+        native_settings=e.memory()[0x1eaa:0x1eb7]
+        for _ in range(3):press(e,6)
+        for setting,name in enumerate(('bgm1','bgm2','bgm3','off')):
+            if setting:press(e,7)
+            e.run(3)
+            assert e.memory()[0x1ea9]==setting
+            # Check the actual native arrow sprite before each BGM/OFF label.
+            r=e.memory();oam=r[0x1900:int.from_bytes(r[0x1dc5:0x1dc7],'little')]
+            assert bytes((0x30+setting*0x30,0x8f,0x60,0x32)) in [oam[i:i+4] for i in range(0,len(oam),4)]
+            assert e.memory()[0x1eaa:0x1eb7]==native_settings
+            e.screenshot(DEST/f'custom-music-{name}-menu.png')
+        press(e,7);assert e.memory()[0x1ea9]==3
+        for _ in range(3):press(e,6)
+        press(e,6);assert e.memory()[0x1ea9]==0
+        for _ in range(7):press(e,4)
+        assert e.memory()[0x1ef2]==0
 
 
 def background_capture(e, stage, path):
@@ -95,10 +212,16 @@ def verify(core):
         try:
             menu(e,custom)
             assert e.memory()[0x1ef0]==0
-            if not custom:normal_menu_focus(e,0)
+            if not custom:
+                normal_menu_focus(e,0)
+                normal_menu_spacing(e,source)
             e.screenshot(DEST/f'{prefix}-one-player-menu.png')
+            if custom:custom_menu_layout(e,source)
             press(e,7);assert e.memory()[0x1ef0]==1
+            if not custom:
+                e.run(2);normal_menu_spacing(e,source)
             e.screenshot(DEST/f'{prefix}-two-player-menu.png')
+            if custom:custom_menu_layout(e,source,True)
             press(e,6);assert e.memory()[0x1ef0]==0
             if not custom:
                 for cursor,address,name in ((1,0x1ea6,'handicap'),(2,0x1ea8,'time'),(3,0x1ea9,'music')):
@@ -170,7 +293,9 @@ def verify(core):
             press(e,3)
             until(e,lambda r:r[0xbaf]==0x33 and r[0x32]==15)
             if custom:press(e,5)
-            press(e,3);e.run(120);press(e,6);assert e.memory()[0x1ef0]==0
+            press(e,3);e.run(120)
+            assert e.memory()[0x1ef0]==0, 'Reopening menu retained two-player selection'
+            press(e,6);assert e.memory()[0x1ef0]==0
             press(e,3);active(e,1)
             assert not any(e.memory()[0x600:0xa00]), 'Old opponent state survived solo restart'
             print(f'PASS {prefix}: count toggle, solo controls, P2 inert, pause, '
@@ -181,7 +306,7 @@ def verify(core):
     e=Emulator(core,OUTPUT)
     try:
         menu(e,True)
-        for _ in range(7):press(e,5)
+        for _ in range(8):press(e,5)
         for _ in range(4):press(e,6)
         assert e.memory()[0x1eb6]==1
         e.screenshot(DEST/'custom-one-minute-settings.png')

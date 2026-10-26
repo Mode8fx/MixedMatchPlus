@@ -4,6 +4,7 @@ import struct
 from assemble65816 import assemble
 from snes_disasm import offset
 from build_rom import decode_tile, encode_tile
+from normal_menu import build_normal_menu
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -36,6 +37,7 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     hook(0x8ADF90,'custom_input',6)
     put(offset(0x8ADF96),b'\x60')
     hook(0x8AE454,'normal_draw')
+    hook(0x8AE71D,'normal_initial_maps')
     hook(0x8ADF56,'custom_draw')
     hook(0x8ACF90,'mixed_input_two',10)
     hook(0x8ACFA3,'mixed_controls_two',9)
@@ -47,47 +49,42 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     hook(0x8AD027,'mixed_init_two',9)
     hook(0x83DD41,'mixed_sprites',4,0x5c)
     hook(0x83DF60,'normal_second_marker')
+    hook(0x83DF27,'custom_menu_sprites')
     hook(0x808945,'solo_display')
     hook(0x808951,'solo_windows')
     hook(0x8AD03C,'solo_initial_maps')
     put(offset(0x8AD36E),struct.pack('<H',labels['solo_reload_init'] & 0xffff))
 
-    # Normal menu: four framed headings, with a compact native-style count row.
-    base=0xB2000
-    rows=[source[base+i*64:base+(i+1)*64] for i in range(32)]
-    empty=rows[7]
-    new=rows.copy()
-    for row in range(4,24):new[row]=empty
-    for old,dest in ((4,8),(5,9),(6,10),(9,12),(12,14),(13,15),(14,16),(16,18),(18,19),(19,20),(20,21),(22,23)):
-        new[dest]=rows[old]
-    for row,entries in (
-        (4,struct.pack('<9H',0x2024,*([0x2025]*7),0x6024)),
-        (5,struct.pack('<H',0x2026)+text('PLAYERS')+struct.pack('<H',0x6026)),
-        (6,struct.pack('<9H',0xa024,*([0xa025]*7),0xe024)),
-        (7,text('1 2  PLAYERS')),
-    ):
-        line=bytearray(new[row]);col=7 if row==7 else 4
-        line[col*2:col*2+len(entries)]=entries;new[row]=bytes(line)
-    put(base,b''.join(new))
-    # Native selection borders follow their moved header tiles.
-    for start,count,delta in ((0x8AE809,22,0x100),(0x8AE842,24,0x80),(0x8AE87F,30,0x40)):
-        off=offset(start);values=struct.unpack_from('<'+str(count)+'H',source,off)
-        put(off,struct.pack('<'+str(count)+'H',*(v+delta for v in values)))
-    # Handicap markers move with the shared difficulty labels.
-    put(offset(0x83DF75),b'\x4f')
-    put(offset(0x83DF8D),b'\x67')
-    put(offset(0x83DFA8),b'\x8f')
-    put(offset(0x83DFC3),b'\xb7')
+    # Pixel layout, graphics, and focus cells come from the same native assets.
+    menu_map,graphics,highlights=build_normal_menu(source)
+    put(0xb2000,menu_map)
+    for pc,data in ((0x9D8000,graphics),(0x9C9100,highlights)):
+        off=offset(pc)
+        if source[off:off+len(data)]!=b'\xff'*len(data):
+            raise ValueError(f'Normal menu extension space is not blank at ${pc:06X}')
+        put(off,data)
+    put(offset(labels['normal_font_length'])+1,struct.pack('<H',len(graphics)))
+    put(offset(0x83DF75),b'\x57')
+    put(offset(0x83DF8D),b'\x6f')
+    put(offset(0x83DFA8),b'\x95')
+    put(offset(0x83DFC3),b'\xb8')
 
-    # Custom menu: move content and bottom border down two rows; insert count row.
+    # Custom menu: keep the native frame, space the count row, and use the spare
+    # space for music. PLAY TIME keeps a blank row above and below.
     base=0xAE800
     rows=[source[base+i*64:base+(i+1)*64] for i in range(32)]
     new=rows.copy()
-    for row in range(3,26):new[row]=rows[row-2] if row>=5 else rows[5]
+    custom_rows={3:6,4:7,6:8,7:9,8:10,10:11,12:12,13:13,15:14,17:15,18:18,19:19,20:20,21:21}
+    for row in range(3,22):new[row]=rows[5]
+    for old,dest in custom_rows.items():new[dest]=rows[old]
+    line=bytearray(new[16]);heading=text('MUSIC SELECT')
+    line[10:10+len(heading)]=b''.join(struct.pack('<H',v|0x0400) for (v,) in struct.iter_unpack('<H',heading))
+    new[16]=bytes(line)
+    new[17]=source[0xb2000+22*64:0xb2000+23*64]
     put(base,b''.join(new))
     off=offset(0x8AE3B8)
     values=struct.unpack_from('<13H',source,off)
-    put(off,struct.pack('<13H',*(v+0x80 for v in values)))
+    put(off,struct.pack('<13H',*(custom_rows[v//64]*64+v%64 for v in values)))
 
     put(offset(0x9C9040),text('1 PLAYER GAME'))
     result=bytearray(source[0xB3000:0xB3780])
