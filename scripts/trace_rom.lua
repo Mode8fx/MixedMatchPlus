@@ -4,6 +4,47 @@ local cfg = dofile(base .. "trace_config.lua")
 local frame = 0
 local log = assert(io.open(base .. cfg.name .. ".log", "w"))
 local trace = assert(io.open(base .. cfg.name .. ".trace", "w"))
+local timerDmaCounts = {}
+local paddingDmaCounts = {}
+if cfg.timer_dma_start then
+  local pending = false
+  emu.addMemoryCallback(function() pending = true end,emu.callbackType.exec,cfg.timer_dma_start,cfg.timer_dma_start)
+  emu.addMemoryCallback(function()
+    if not pending then return end
+    pending = false
+    local s=emu.getState()
+    local line=s['ppu.scanline']
+    local blank=s['ppu.forcedBlank']
+    local first=s['ppu.overscanMode'] and 240 or 225
+    if not blank and (line<first or line>261) then
+      log:write('FAIL timer DMA outside vblank: frame '..frame..' line '..line..'\n');log:flush()
+      emu.stop(1)
+    end
+    local key=blank and 'forced blank' or tostring(line)
+    timerDmaCounts[key]=(timerDmaCounts[key] or 0)+1
+  end,emu.callbackType.exec,cfg.timer_dma_end,cfg.timer_dma_end)
+  local paddingPending = false
+  emu.addMemoryCallback(function()
+    local x=emu.getState()['cpu.x']
+    local function ram(off) return emu.read(x+off,emu.memType.snesWorkRam) end
+    local source=ram(0x2A)+ram(0x2B)*256
+    paddingPending=ram(0x2C)==0x9C and source>=0xF000 and source<0xFC00 and ram(0x2D)==64 and ram(0x2E)==0
+  end,emu.callbackType.exec,0x808AF2,0x808AF2)
+  emu.addMemoryCallback(function()
+    if not paddingPending then return end
+    paddingPending=false
+    local s=emu.getState()
+    local line=s['ppu.scanline']
+    local blank=s['ppu.forcedBlank']
+    local first=s['ppu.overscanMode'] and 240 or 225
+    if not blank and (line<first or line>261) then
+      log:write('FAIL padding DMA outside vblank: frame '..frame..' line '..line..'\n');log:flush()
+      emu.stop(1)
+    end
+    local key=blank and 'forced blank' or tostring(line)
+    paddingDmaCounts[key]=(paddingDmaCounts[key] or 0)+1
+  end,emu.callbackType.exec,0x808AF5,0x808AF5)
+end
 local function dump(name, mem, size)
   local file = assert(io.open(base .. cfg.name .. "-" .. name .. ".bin", "wb"))
   local bytes = {}
@@ -42,7 +83,11 @@ emu.addEventCallback(function()
     end
     log:flush()
   end
-  if frame>=cfg.frames then trace:close(); log:close(); emu.stop(0) end
+  if frame>=cfg.frames then
+    for line,count in pairs(timerDmaCounts) do log:write('PASS timer DMA end '..line..': '..count..'\n') end
+    for line,count in pairs(paddingDmaCounts) do log:write('PASS padding DMA end '..line..': '..count..'\n') end
+    trace:close(); log:close(); emu.stop(0)
+  end
 end,emu.eventType.endFrame)
 emu.addMemoryCallback(function(address,value)
   if frame < cfg.trace_start or frame >= cfg.trace_end then return end

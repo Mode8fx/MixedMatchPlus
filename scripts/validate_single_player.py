@@ -239,6 +239,17 @@ def background_capture(e, stage, path):
     # Check the embedded pieces as rendered graphics, not just the standalone
     # separator tile. All panel/frame pixels outside the strip must survive.
     vram=e.memory(3);source=SOURCE.read_bytes()
+    # Anchor the complete native P1 decorative half to the original phase
+    # assets. Comparing only with our generated maps can hide a wrong source
+    # selection (Type A uses $959800; Type B uses $95A000).
+    native_bg2={1:0xaa000,3:0xaa800,5:0xa9800}[stage]
+    native_bg3={1:0xac000,3:0xac800,5:0xab800}[stage]
+    for layer,base in ((0x800,native_bg2),(0x1000,native_bg3)):
+        for row in range(32):
+            for x in range(16):
+                if 23<=row<27 and col<=x<col+6:continue
+                offset=row*64+x*2
+                assert vram[layer+offset:layer+offset+2]==source[base+offset:base+offset+2], f'Solo phase {stage} changed native background at layer {layer:x}, row {row}, column {x}'
     for tile in (0x236,0x238,0x23a,0x23c,0x23e):
         original=decode_tile(source,tile,0x70000)
         cleaned=decode_tile(vram,tile,0x2000)
@@ -278,6 +289,10 @@ def verify(core):
     verify_navigation_sound(core)
     from validate_timer import verify_timer
     verify_timer(core)
+    from validate_transition import verify_solo_transition
+    verify_solo_transition(core)
+    from validate_dr_clear import verify_dr_clear
+    verify_dr_clear(core)
     for custom in (False,True):
         prefix='custom' if custom else 'normal'
         e=Emulator(core,OUTPUT)
@@ -341,6 +356,8 @@ def verify(core):
             until(e,lambda r:r[0xbaf]==0x31 and r[0x305]==4)
             e.run(2)
             assert e.memory()[0x805]==0, 'Timer started an inactive P2 end state'
+            assert e.memory()[0x1ef5]==0 and not e.memory()[0x34]&0x80, 'Solo window HDMA leaked into results'
+            assert e.memory()[0x1efe]==0 and not e.memory()[0x34]&0x60, 'Timer padding HDMA leaked into results'
             assert int.from_bytes(e.memory()[0x412:0x416],'little')==15912
             e.screenshot(DEST/f'{prefix}-solo-results.png')
             press(e,3)
@@ -352,6 +369,8 @@ def verify(core):
             press(e,3);e.run(120);press(e,7);assert e.memory()[0x1ef0]==1
             press(e,3);active(e,1)
             until(e,lambda r:r[0x8f1]==1 and r[0x805]==5)
+            assert e.memory()[0x1ef5]==0 and not e.memory()[0x34]&0x80, 'Solo window HDMA leaked into two-player play'
+            assert e.memory()[0x1efe]==0 and not e.memory()[0x34]&0x60, 'Gold timer bands leaked into Tetris'
             old_x=e.memory()[0x826];e.run(8,(),(6,))
             assert e.memory()[0x826]!=old_x
             assert e.memory(3)[0x7900:0x7920]==source[0x75900:0x75920], 'Two-player divider changed'

@@ -521,9 +521,9 @@ solo_display:
   sep.b #$20
   lda.w $0BAF
   cmp.b #$30
-  bne solo_display_done
+  bne solo_display_other
   lda.w $1EF0
-  bne solo_display_done
+  bne solo_display_other
   lda.b #$50
   ldx.w $03F1
   cpx.w #$0003
@@ -539,13 +539,17 @@ solo_shift_ready:
   sta.b $53
   sta.b $57
   sep.b #$20
-  ; Keep the foreground and sprites in the solo pane. The extended decorative
-  ; BG2/BG3 layers remain visible across the entire screen.
-  lda.b #$03
+  ; BG2/BG3 hide only inside the permanent pane and outside the animated
+  ; opening (inverted W1 AND W2). Exterior decoration remains full width.
+  lda.b #$B3
   sta.w $2123
+  lda.b #$03
   sta.w $2125
-  stz.w $2124
-  lda.b #$11
+  lda.b #$0B
+  sta.w $2124
+  lda.b #$14
+  sta.w $212A
+  lda.b #$17
   sta.b $4D
   sta.b $4E
   ldx.w #$1900
@@ -561,6 +565,13 @@ solo_sprite_loop:
   inx
   inx
   bra solo_sprite_loop
+solo_display_other:
+  lda.w $1EF5
+  beq solo_display_done
+  stz.w $1EF5
+  lda.b $34
+  and.b #$7F
+  sta.b $34
 solo_display_done:
   plb
   rep.b #$30
@@ -586,13 +597,38 @@ solo_windows:
   clc
   adc.w $1EF3
   sta.w $2127
-  lda.b $6E
-  sta.w $2128
-  lda.b $6F
-  sta.w $2129
+  jsl.l solo_window_hdma
   rts
 original_windows:
   jmp.w $8D47
+
+org $80D200
+solo_window_hdma:
+  lda.w $1EF3
+  sta.w $2128
+  clc
+  adc.b #$7F
+  sta.w $2129
+  lda.w $1EF4
+  beq solo_window_hdma_done
+  lda.w $1EF5
+  bne solo_window_hdma_enable
+  phx
+  ldx.w #$2900
+  stx.w $4370
+  ldx.w #$0D40
+  stx.w $4372
+  lda.b #$7F
+  sta.w $4374
+  plx
+  lda.b #$01
+  sta.w $1EF5
+solo_window_hdma_enable:
+  lda.b $34
+  ora.b #$80
+  sta.b $34
+solo_window_hdma_done:
+  rtl
 
 ; Run after the native queued VRAM transfers and palette DMA, before display
 ; enable. Only 48 bytes are transferred; tile selection and foreground clearing
@@ -613,6 +649,7 @@ mixed_timer_display:
   beq mixed_timer_display_done
   jsl.l timer_transfer
 mixed_timer_display_done:
+  jsl.l timer_padding_display
   rep.b #$30
   ply
   plx
@@ -622,10 +659,23 @@ mixed_timer_display_done:
 
 org $9C8500
 timer_load:
+  ; The native gold frame leaves palette-3 colors 9/10 unused. Give its paper
+  ; the existing HUD white and its font shadow the exact Dr. Mario OBJ shade.
+  rep.b #$20
+  lda.w #$FFFF
+  sta.w $1EFC
+  lda.l $8394A4
+  sta.w $1572
+  lda.l $839506
+  sta.w $1574
+  sep.b #$20
+  lda.b #$01
+  sta.w $1DC2
   lda.b #$9D
   pha
   pea.w $9000
-  pea.w $4000
+timer_font_destination:
+  pea.w $0000 ; Generated font span, including preserved interleaved native tiles.
 timer_font_length:
   pea.w $0000
   jsl.l $808B0B
@@ -670,6 +720,11 @@ timer_two_position:
   lda.w #$06ED
 timer_position_ready:
   sta.b $00
+  cmp.w $1EFA
+  beq timer_position_saved
+  jsl.l solo_timer_cutout
+timer_position_saved:
+  lda.b $00
   sta.w $1EFA
   ; Clear the foreground locally before its existing full-map DMA. In solo
   ; this is outside the clipped field; in two-player it removes the divider.
@@ -692,6 +747,34 @@ timer_clear_foreground_row:
   tax
   dey
   bne timer_clear_foreground_row
+  ; Each half follows that player's stage. Solo mirrors P1's choice on both
+  ; halves; two-player matches can show silver and gold simultaneously.
+  lda.w $03F1
+  and.w #$00FF
+  cmp.w #$0003
+  beq timer_left_doctor
+  lda.w #$0000
+  bra timer_left_style
+timer_left_doctor:
+  lda.w #$0400
+timer_left_style:
+  sta.w $1EF6
+  lda.w $1EF0
+  and.w #$00FF
+  beq timer_solo_right_style
+  lda.w $08F1
+  and.w #$00FF
+  cmp.w #$0003
+  beq timer_right_doctor
+  lda.w #$0000
+  bra timer_right_style
+timer_right_doctor:
+  lda.w #$0400
+  bra timer_right_style
+timer_solo_right_style:
+  lda.w $1EF6
+timer_right_style:
+  sta.w $1EF8
   ; Binary engine clock: minutes 0..30, seconds 0..59. Clamp a transient
   ; underflow rather than indexing beyond the tables during timer expiry.
   lda.w $040A
@@ -706,6 +789,8 @@ timer_minutes_valid:
   adc.b $02
   asl A
   asl A
+  clc
+  adc.w $1EF6
   sta.b $02
   lda.w $0409
   and.w #$00FF
@@ -719,43 +804,76 @@ timer_seconds_valid:
   adc.b $04
   asl A
   asl A
+  clc
+  adc.w $1EF8
   sta.b $04
-  ldx.w #$0000
-timer_frame_buffer:
+  ; Each style has a 32-byte frame record; copy only its player's half.
+  lda.w $1EF6
+  lsr A
+  lsr A
+  lsr A
+  lsr A
+  lsr A
+  tax
   lda.l $9C9300,X
-  sta.l $7F0D00,X
+  sta.l $7F0D00
+  lda.l $9C9302,X
+  sta.l $7F0D02
+  lda.l $9C9304,X
+  sta.l $7F0D04
   lda.l $9C930C,X
-  sta.l $7F0D24,X
-  inx
-  inx
-  cpx.w #$000C
-  bne timer_frame_buffer
+  sta.l $7F0D24
+  lda.l $9C930E,X
+  sta.l $7F0D26
+  lda.l $9C9310,X
+  sta.l $7F0D28
+  lda.w $1EF8
+  lsr A
+  lsr A
+  lsr A
+  lsr A
+  lsr A
+  tax
+  lda.l $9C9306,X
+  sta.l $7F0D06
+  lda.l $9C9308,X
+  sta.l $7F0D08
+  lda.l $9C930A,X
+  sta.l $7F0D0A
+  lda.l $9C9312,X
+  sta.l $7F0D2A
+  lda.l $9C9314,X
+  sta.l $7F0D2C
+  lda.l $9C9316,X
+  sta.l $7F0D2E
   ldx.b $02
-  lda.l $9C9400,X
+  lda.l $9CA000,X
   sta.l $7F0D0C
-  lda.l $9C9402,X
+  lda.l $9CA002,X
   sta.l $7F0D0E
-  lda.l $9C9404,X
+  lda.l $9CA004,X
   sta.l $7F0D10
-  lda.l $9C9406,X
+  lda.l $9CA006,X
   sta.l $7F0D18
-  lda.l $9C9408,X
+  lda.l $9CA008,X
   sta.l $7F0D1A
-  lda.l $9C940A,X
+  lda.l $9CA00A,X
   sta.l $7F0D1C
   ldx.b $04
-  lda.l $9CA000,X
+  lda.l $9CA800,X
   sta.l $7F0D12
-  lda.l $9CA002,X
+  lda.l $9CA802,X
   sta.l $7F0D14
-  lda.l $9CA004,X
+  lda.l $9CA804,X
   sta.l $7F0D16
-  lda.l $9CA006,X
+  lda.l $9CA806,X
   sta.l $7F0D1E
-  lda.l $9CA008,X
+  lda.l $9CA808,X
   sta.l $7F0D20
-  lda.l $9CA00A,X
+  lda.l $9CA80A,X
   sta.l $7F0D22
+  jsl.l timer_padding_prepare
+  jsl.l solo_background_table
   pla
   sta.b $04
   pla
@@ -783,7 +901,7 @@ timer_transfer:
   and.b #$01
   beq timer_transfer_low_line
   pla
-  cmp.b #$03
+  cmp.b #$04
   bcs timer_transfer_done
   bra timer_transfer_ready
 timer_transfer_low_line:
@@ -834,6 +952,254 @@ timer_transfer_ready:
   lda.b #$01
   sta.w $420B
 timer_transfer_done:
+  rtl
+
+org $9C8800
+solo_background_table:
+  ; Channel 7 changes only W2's right edge. Hardware lines 192..223 are
+  ; cropped screen rows 184..215: the timer remains outside the wipe mask,
+  ; while the well to its left still closes. All other lines cover the HUD.
+  lda.w $1EF0
+  and.w #$00FF
+  bne solo_background_table_done
+  lda.w $03F1
+  and.w #$00FF
+  cmp.w #$0003
+  bne solo_background_table_tetris
+  lda.w #$C77F
+  bra solo_background_table_store
+solo_background_table_tetris:
+  lda.w #$CF7F
+solo_background_table_store:
+  sta.l $7F0D40
+  and.w #$FF00
+  ora.w #$0040
+  sta.l $7F0D42
+  and.w #$FF00
+  ora.w #$0011
+  sta.l $7F0D46
+  lda.w #$B720
+  sta.l $7F0D44
+  lda.w #$0000
+  sta.l $7F0D48
+solo_background_table_done:
+  rtl
+
+org $9C8900
+solo_timer_cutout:
+  ; When the solo camera changes by 8px, clear the newly exposed column of
+  ; the timer's BG3 cutout immediately. The staged full-map reload follows
+  ; later; until then an old color tile would tint one edge of the panel.
+  lda.w $1EF0
+  and.w #$00FF
+  beq solo_timer_cutout_check_ready
+  rtl
+solo_timer_cutout_check_ready:
+  lda.w $1EF4
+  and.w #$00FF
+  bne solo_timer_cutout_build
+  rtl
+solo_timer_cutout_build:
+  lda.w #$01FF
+  sta.l $7F0D50
+  sta.l $7F0D52
+  sta.l $7F0D54
+  sta.l $7F0D56
+  lda.w #$1801
+  sta.l $7F0D60
+  lda.w #$0D50
+  sta.l $7F0D62
+  lda.w #$087F
+  sta.l $7F0D64
+  lda.w #$0000
+  sta.l $7F0D66
+  lda.w #$8100
+  sta.l $7F0D68
+  lda.b $00
+  clc
+  adc.w #$0400
+  ldx.w $03F1
+  cpx.w #$0003
+  bne solo_timer_cutout_target
+  clc
+  adc.w #$0005
+solo_timer_cutout_target:
+  sta.l $7F0D67
+  ; Append the native descriptor format without changing DB: bank $7F has
+  ; no low-WRAM mirror for the engine's absolute queue-pointer accesses.
+  ldx.w $1DC0
+  cpx.w #$1BC0
+  bcs solo_timer_cutout_done
+  lda.l $7F0D60
+  sta.b $28,X
+  lda.l $7F0D62
+  sta.b $2A,X
+  lda.l $7F0D64
+  sta.b $2C,X
+  lda.l $7F0D66
+  sta.b $2E,X
+  lda.l $7F0D68
+  sta.b $30,X
+  txa
+  clc
+  adc.w #$000A
+  sta.w $1DC0
+solo_timer_cutout_done:
+  rtl
+
+; Alternate maps retain native backgrounds outside the 28px-high gold frame.
+; BG2 uses unused VRAM $1800..$1FFF. BG3's two live rows occupy four reserved
+; graphics slots at $8DC0/$8E80, using map base $8800. Channel 6 selects these
+; maps on the two scanlines above/below the frame without touching scroll.
+org $80D300
+timer_padding_display:
+  lda.w $0BAF
+  cmp.b #$30
+  bne timer_padding_disable
+  lda.w $1EF4
+  beq timer_padding_disable
+  lda.w $1EF7
+  ora.w $1EF9
+  beq timer_padding_disable
+  lda.w $1EFE
+  bne timer_padding_enable
+  ldx.w #$0801
+  stx.w $4360
+  ldx.w #$FE00
+  stx.w $4362
+  lda.b #$9C
+  sta.w $4364
+  lda.b #$01
+  sta.w $1EFE
+timer_padding_enable:
+  lda.b $34
+  ora.b #$40
+  sta.b $34
+  rtl
+timer_padding_disable:
+  lda.w $1EFE
+  beq timer_padding_display_done
+  stz.w $1EFE
+  lda.b $34
+  and.b #$BF
+  sta.b $34
+  ldx.w #$0804
+  stx.w $2108
+timer_padding_display_done:
+  rtl
+
+org $9C8A00
+timer_padding_prepare:
+  ; Record 0..2: solo phases. Records 3..11: P1 phase * 3 + P2 phase.
+  lda.w $03F1
+  and.w #$00FF
+  dec A
+  lsr A
+  cmp.w #$0003
+  bcc timer_padding_left_valid
+  lda.w #$0000
+timer_padding_left_valid:
+  sta.b $00
+  lda.w $1EF0
+  and.w #$00FF
+  beq timer_padding_key_ready
+  lda.b $00
+  asl A
+  clc
+  adc.b $00
+  adc.w #$0003
+  sta.b $00
+  lda.w $08F1
+  and.w #$00FF
+  dec A
+  lsr A
+  cmp.w #$0003
+  bcc timer_padding_right_valid
+  lda.w #$0000
+timer_padding_right_valid:
+  clc
+  adc.b $00
+  sta.b $00
+timer_padding_key_ready:
+  lda.b $00
+  cmp.w $1EFC
+  bne timer_padding_changed
+  rtl
+timer_padding_changed:
+  sta.b $02
+  asl A
+  asl A
+  clc
+  adc.b $02
+  asl A
+  asl A
+  asl A
+  tax
+  lda.w $1EF4
+  and.w #$00FF
+  beq timer_padding_initial_load
+  ; Four 64-byte transfers only when either player's stage changes.
+  ldy.w $1DC0
+  cpy.w #$1BA0
+  bcs timer_padding_prepare_done
+  lda.w #$0014
+  sta.b $04
+timer_padding_queue_word:
+  lda.l $9CFC00,X
+  sta.w $0028,Y
+  inx
+  inx
+  iny
+  iny
+  dec.b $04
+  bne timer_padding_queue_word
+  sty.w $1DC0
+  lda.b $00
+  sta.w $1EFC
+timer_padding_prepare_done:
+  rtl
+timer_padding_initial_load:
+; Initial copies run under the same forced blank as the native map loads.
+  lda.b $00
+  sta.w $1EFC
+  sep.b #$20
+  lda.b #$9C
+  pha
+  rep.b #$20
+  lda.l $9CFC02,X
+  pha
+  pea.w $0EE0
+  pea.w $0040
+  sep.b #$20
+  jsl.l $808B0B
+  lda.b #$9C
+  pha
+  rep.b #$20
+  lda.l $9CFC0C,X
+  pha
+  pea.w $0F40
+  pea.w $0040
+  sep.b #$20
+  jsl.l $808B0B
+  lda.b #$9C
+  pha
+  rep.b #$20
+  lda.l $9CFC16,X
+  pha
+  pea.w $46E0
+  pea.w $0040
+  sep.b #$20
+  jsl.l $808B0B
+  lda.b #$9C
+  pha
+  rep.b #$20
+  lda.l $9CFC20,X
+  pha
+  pea.w $4740
+  pea.w $0040
+  sep.b #$20
+  jsl.l $808B0B
+  rep.b #$20
   rtl
 
 org $9C8000

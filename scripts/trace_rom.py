@@ -16,6 +16,7 @@ def main():
     p.add_argument('--trace',nargs=2,type=int,default=[0,0])
     p.add_argument('--dumps',nargs='+',type=int)
     p.add_argument('--writes',nargs='*',default=[],help='Test-only WRAM edits: decimal-frame:hex-address:hex-byte')
+    p.add_argument('--check-timer-dma',action='store_true',help='Check the current patch\'s final timer DMA finishes inside vblank')
     p.add_argument('--mesen',type=Path,default=Path('C:/RetroBat/emulators/mesen/Mesen.exe'),help='Installed Mesen to copy into custom/tools on first use')
     a=p.parse_args(); frame=0; inputs=[]
     for token in a.sequence:
@@ -29,7 +30,16 @@ def main():
     writes=[]
     for item in a.writes:
         f,addr,val=item.split(':');writes.append(f'{{{int(f)},{int(addr,16)},{int(val,16)}}}')
-    config=('return {name='+json.dumps(a.name)+f',frames={frame},trace_start={a.trace[0]},trace_end={a.trace[1]},'
+    timer_config=''
+    if a.check_timer_dma:
+        from assemble65816 import assemble
+        from snes_disasm import offset
+        _,labels=assemble((ROOT/'patches'/'single_player.asm').read_text())
+        end=labels['timer_transfer_done'];rom=a.rom.read_bytes()
+        if rom[offset(end)-3:offset(end)+1]!=bytes.fromhex('8d 0b 42 6b'):
+            raise ValueError('Timer DMA check requires a ROM built from the current patch')
+        timer_config=f'timer_dma_start={end-3},timer_dma_end={end},'
+    config=('return {name='+json.dumps(a.name)+f',frames={frame},trace_start={a.trace[0]},trace_end={a.trace[1]},'+timer_config
             +'inputs={'+','.join(inputs)+'},dumps={'+','.join(f'[{f}]=true' for f in dumps)
             +'},writes={'+','.join(writes)+'}}')
     (folder/'trace_config.lua').write_text(config)

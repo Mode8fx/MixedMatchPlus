@@ -6,7 +6,8 @@ from snes_disasm import offset
 from build_rom import decode_tile, encode_tile
 from normal_menu import build_normal_menu
 from custom_menu import build_music_row
-from timer import build_timer
+from timer import build_timer, FONT_FIRST_TILE
+from timer_padding import build_padding
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -59,12 +60,13 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
 
     graphics,frame,minutes,seconds=build_timer(source)
     for pc,data in ((0x9D9000,graphics),(0x9C9300,frame),
-                    (0x9C9400,minutes),(0x9CA000,seconds)):
+                    (0x9CA000,minutes),(0x9CA800,seconds)):
         off=offset(pc)
         if source[off:off+len(data)]!=b'\xff'*len(data):
             raise ValueError(f'Timer extension space is not blank at ${pc:06X}')
         put(off,data)
     put(offset(labels['timer_font_length'])+1,struct.pack('<H',len(graphics)))
+    put(offset(labels['timer_font_destination'])+1,struct.pack('<H',(0x2000+FONT_FIRST_TILE*32)//2))
 
     # These native color maps belong to Mixed Match. Keep the timer's subscreen
     # black in both halves, including when players change games independently.
@@ -145,10 +147,11 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     put(off,label_graphics)
     # Extend only decorative maps. Their native left halves remain byte-identical,
     # and the unused right halves become background texture, never another field.
+    padding_maps={}
     for stage,bg2_source,bg3_source,destination in (
         (1,0xAA000,0xAC000,0x9CC000),
         (3,0xAA800,0xAC800,0x9CD000),
-        (5,0xAA000,0xAB800,0x9CE000),
+        (5,0xA9800,0xAB800,0x9CE000),
     ):
         bg2=bytearray(source[bg2_source:bg2_source+0x800])
         bg3=bytearray(source[bg3_source:bg3_source+0x800])
@@ -166,6 +169,7 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
                     tile3=struct.unpack_from('<H',source,bg3_source+10*64)[0]
                 struct.pack_into('<H',bg2,index,tile2)
                 struct.pack_into('<H',bg3,index,tile3)
+        padding_maps[stage]=(bytes(bg2),bytes(bg3))
         maps=bg2+bg3
         col=14 if stage==3 else 13
         for row in range(23,27):
@@ -174,4 +178,9 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
         if source[off:off+len(maps)]!=b'\xff'*len(maps):
             raise ValueError(f'Solo background space is not blank at {destination:06X}')
         put(off,maps)
+    for pc,data in zip((0x9CF000,0x9CFC00,0x9CFE00),build_padding(source,padding_maps,frame)):
+        off=offset(pc)
+        if source[off:off+len(data)]!=b'\xff'*len(data):
+            raise ValueError(f'Timer padding space is not blank at ${pc:06X}')
+        put(off,data)
     return ranges
