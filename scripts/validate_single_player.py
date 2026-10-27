@@ -358,7 +358,7 @@ def verify(core):
             until(e,lambda r:r[0xbaf]==0x31 and r[0x305]==4)
             e.run(2)
             assert e.memory()[0x805]==0, 'Timer started an inactive P2 end state'
-            assert e.memory()[0x1ef5]==0 and not e.memory()[0x34]&0x80, 'Solo window HDMA leaked into results'
+            assert not e.memory()[0x34]&0x80, 'Obsolete solo window HDMA leaked into results'
             assert e.memory()[0x1efe]==0 and not e.memory()[0x34]&0x60, 'Timer padding HDMA leaked into results'
             assert int.from_bytes(e.memory()[0x412:0x416],'little')==15912
             e.screenshot(DEST/f'{prefix}-solo-results.png')
@@ -371,7 +371,7 @@ def verify(core):
             press(e,3);e.run(120);press(e,7);assert e.memory()[0x1ef0]==1
             press(e,3);active(e,1)
             until(e,lambda r:r[0x8f1]==1 and r[0x805]==5)
-            assert e.memory()[0x1ef5]==0 and not e.memory()[0x34]&0x80, 'Solo window HDMA leaked into two-player play'
+            assert not e.memory()[0x34]&0x80, 'Obsolete solo window HDMA leaked into two-player play'
             assert e.memory()[0x1efe]==0 and not e.memory()[0x34]&0x60, 'Gold timer bands leaked into Tetris'
             old_x=e.memory()[0x826];e.run(8,(),(6,))
             assert e.memory()[0x826]!=old_x

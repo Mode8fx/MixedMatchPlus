@@ -18,6 +18,25 @@ def timer_visible(e,picture):
                     assert actual==rgb, f'Timer clipped/tinted during solo wipe at {(184+x*8+dx,row*8+y)}: {actual} != {rgb}'
 
 
+def check_solo_wipe(e,picture,previous=None):
+    """Every layer, including decoration/timer, must stay inside the opening.
+
+    Allow the current/previous counter envelope because RAM can be one logic
+    update ahead of the rendered frame. At a stable closed opening the whole
+    image must be black, with no exception for any scanline or UI element.
+    """
+    r=e.memory();bounds=(r[0x6c]*2,r[0x6d]*2+1)
+    left,right=bounds
+    if previous is not None:left,right=min(left,previous[0]),max(right,previous[1])
+    if left>right:
+        assert picture.getbbox() is None, 'Solo map loading or timer leaked through the fully closed wipe'
+    else:
+        for box in ((0,0,left,224),(right+1,0,256,224)):
+            if box[2]>box[0]:assert picture.crop(box).getbbox() is None, f'Solo screen/timer leaked outside wipe bounds {left}..{right}'
+    assert not r[0x34]&0x80, 'Obsolete timer window HDMA is still enabled'
+    return bounds
+
+
 def verify_solo_transition(core):
     from validate_single_player import menu,press,active
     dest=ROOT/'custom'/'validation'
@@ -32,22 +51,22 @@ def verify_solo_transition(core):
             e.write_memory(0x251,b'\x01'*10)
             e.write_memory(0x328,b'\x01')
             prefix='custom' if custom else 'normal'
-            closed_frames=0;prior=None;states=set()
+            closed_frames=0;prior=None;states=set();bounds=None
             for frame in range(1100):
                 r=e.memory();state=(r[0x3f1],r[0x305],r[0x306]);states.add(state)
+                picture=e.screenshot(ROOT/'custom'/'research'/'solo-wipe-check.png')
+                bounds=check_solo_wipe(e,picture,bounds)
+                if bounds==(64,191) and state[0] in (1,3):
+                    direction='closing' if state[0]==1 else 'opening'
+                    picture.save(dest/f'{prefix}-solo-{direction}-wipe.png')
                 if state[0]==3 and state[1]==1 and r[0x6c]>r[0x6d] and prior==state:
-                    picture=e.screenshot(ROOT/'custom'/'research'/'solo-wipe-check.png')
-                    left=r[0x1ef3];right=left+128
-                    for y in range(224):
-                        end=min(right,184) if 184<=y<216 else right
-                        assert all(picture.getpixel((x,y))==(0,0,0) for x in range(left,end)), 'Unmasked background/HUD graphics leaked through the closed solo wipe'
-                    timer_visible(e,picture)
+                    assert picture.getbbox() is None, 'Full-screen solo wipe did not conceal the map reload and timer'
                     if closed_frames==12:picture.save(dest/f'{prefix}-solo-closed-wipe.png')
                     closed_frames+=1
                 if state[0]==3 and state[1]==5:
                     e.run(4)
                     assert r[0x328]==0 and closed_frames>=20
-                    assert e.memory()[0x10d40:0x10d49]==bytes.fromhex('7f c7 40 c7 20 b7 11 c7 00'), 'Wrong scanline bands for timer/wipe windows'
+                    timer_visible(e,e.screenshot(ROOT/'custom'/'research'/'solo-wipe-open.png'))
                     assert any(phase==1 and status==7 for phase,status,sub in states), 'Skipped the native line-clear animation'
                     assert any(phase==1 and status==11 for phase,status,sub in states), 'Skipped native victory'
                     e.screenshot(dest/f'{prefix}-solo-natural-dr-mario.png')
@@ -57,7 +76,7 @@ def verify_solo_transition(core):
                 e.run(1,(5,) if state[0]==1 and state[1]<9 else ())
             else:raise AssertionError('Natural line clear did not reach Dr. Mario')
         finally:e.close()
-    print('PASS real Tetris line-clear route: closed solo wipe hides HUD/background, full timer remains visible, Dr. Mario opens cleanly, P2 inactive')
+    print('PASS real Tetris line-clear route: full-screen solo wipe covers backgrounds and timer, map reload stays fully black, Dr. Mario opens cleanly, P2 inactive')
 
 
 if __name__=='__main__':

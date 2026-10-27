@@ -542,16 +542,17 @@ solo_shift_ready:
   sta.b $53
   sta.b $57
   sep.b #$20
-  ; BG2/BG3 hide only inside the permanent pane and outside the animated
-  ; opening (inverted W1 AND W2). Exterior decoration remains full width.
-  lda.b #$B3
+  ; W1 is the full-screen animated opening. W2 is the centered playfield.
+  ; BG2/BG3 (including the timer) use W1 alone; BG1/OBJ are visible only
+  ; inside both W1 and W2. Thus every layer closes before any map reload.
+  lda.b #$3F
   sta.w $2123
-  lda.b #$03
+  lda.b #$0F
   sta.w $2125
-  lda.b #$0B
+  lda.b #$03
   sta.w $2124
-  lda.b #$14
-  sta.w $212A
+  stz.w $212A
+  stz.w $212B
   lda.b #$17
   sta.b $4D
   sta.b $4E
@@ -569,12 +570,6 @@ solo_sprite_loop:
   inx
   bra solo_sprite_loop
 solo_display_other:
-  lda.w $1EF5
-  beq solo_display_done
-  stz.w $1EF5
-  lda.b $34
-  and.b #$7F
-  sta.b $34
 solo_display_done:
   plb
   rep.b #$30
@@ -591,47 +586,23 @@ solo_windows:
   bne original_windows
   lda.w $1EF0
   bne original_windows
-  ; Offset the engine's logical wipe window without modifying its counters.
+  ; Expand the native 128px opening to 256px, preserving its 64-frame
+  ; close/open timing and logical counters. At 64/63, W1 is empty.
   lda.b $6C
-  clc
-  adc.w $1EF3
+  asl A
   sta.w $2126
   lda.b $6D
-  clc
-  adc.w $1EF3
+  asl A
+  inc A
   sta.w $2127
-  jsl.l solo_window_hdma
-  rts
-original_windows:
-  jmp.w $8D47
-
-org $80D200
-solo_window_hdma:
   lda.w $1EF3
   sta.w $2128
   clc
   adc.b #$7F
   sta.w $2129
-  lda.w $1EF4
-  beq solo_window_hdma_done
-  lda.w $1EF5
-  bne solo_window_hdma_enable
-  phx
-  ldx.w #$2900
-  stx.w $4370
-  ldx.w #$0D40
-  stx.w $4372
-  lda.b #$7F
-  sta.w $4374
-  plx
-  lda.b #$01
-  sta.w $1EF5
-solo_window_hdma_enable:
-  lda.b $34
-  ora.b #$80
-  sta.b $34
-solo_window_hdma_done:
-  rtl
+  rts
+original_windows:
+  jmp.w $8D47
 
 ; Run after the native queued VRAM transfers and palette DMA, before display
 ; enable. Only 48 bytes are transferred; tile selection and foreground clearing
@@ -876,7 +847,6 @@ timer_seconds_valid:
   lda.l $9CA80A,X
   sta.l $7F0D22
   jsl.l timer_padding_prepare
-  jsl.l solo_background_table
   pla
   sta.b $04
   pla
@@ -955,37 +925,6 @@ timer_transfer_ready:
   lda.b #$01
   sta.w $420B
 timer_transfer_done:
-  rtl
-
-org $9C8800
-solo_background_table:
-  ; Channel 7 changes only W2's right edge. Hardware lines 192..223 are
-  ; cropped screen rows 184..215: the timer remains outside the wipe mask,
-  ; while the well to its left still closes. All other lines cover the HUD.
-  lda.w $1EF0
-  and.w #$00FF
-  bne solo_background_table_done
-  lda.w $03F1
-  and.w #$00FF
-  cmp.w #$0003
-  bne solo_background_table_tetris
-  lda.w #$C77F
-  bra solo_background_table_store
-solo_background_table_tetris:
-  lda.w #$CF7F
-solo_background_table_store:
-  sta.l $7F0D40
-  and.w #$FF00
-  ora.w #$0040
-  sta.l $7F0D42
-  and.w #$FF00
-  ora.w #$0011
-  sta.l $7F0D46
-  lda.w #$B720
-  sta.l $7F0D44
-  lda.w #$0000
-  sta.l $7F0D48
-solo_background_table_done:
   rtl
 
 org $9C8900
