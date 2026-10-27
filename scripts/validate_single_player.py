@@ -287,6 +287,8 @@ def verify(core):
     assert complement^checksum==0xffff and sum(patched)&0xffff==checksum
     DEST.mkdir(parents=True,exist_ok=True)
     verify_navigation_sound(core)
+    from validate_custom_repeat import verify_custom_repeat
+    verify_custom_repeat(core)
     from validate_timer import verify_timer
     verify_timer(core)
     from validate_transition import verify_solo_transition

@@ -115,6 +115,9 @@ normal_draw:
 custom_input:
   phk
   plb
+  ; Keep the native held-direction delay/repeat. Start/back/navigation use
+  ; press edges below; only setting changes consume the repeat-enabled mask.
+  jsr.w $E268
   rep.b #$20
   lda.b $41
   bit.w #$1000
@@ -164,20 +167,20 @@ custom_cursor_mapped:
   dec A
   sta.w $0C08
   rep.b #$20
-  lda.b $41
+  lda.w $1DD9
   bit.w #$0300
   sep.b #$20
   beq custom_p2
   lda.w $1EF2
   bne custom_setting
-  lda.b $42
+  lda.w $1DDA
   and.b #$01
   sta.w $1EF0
   bra custom_p2
 custom_setting:
   cmp.b #$07
   beq custom_music_input
-  lda.b $42
+  lda.w $1DDA
   and.b #$02
   beq custom_right
   jsr.w $E010
@@ -186,7 +189,7 @@ custom_right:
   jsr.w $E02A
   bra custom_p2
 custom_music_input:
-  lda.b $42
+  lda.w $1DDA
   and.b #$02
   beq custom_music_right
   lda.w $1EA9
