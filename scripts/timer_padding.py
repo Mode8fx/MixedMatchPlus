@@ -2,7 +2,7 @@
 import struct
 
 
-def build_padding(source, solo_maps, frames):
+def timer_layouts(source, solo_maps):
     phases=(1,3,5)
     bg2={n:source[b:b+0x800] for n,b in ((1,0xAA000),(3,0xAA800),(5,0xA9800))}
     bg3={n:source[b:b+0x800] for n,b in ((1,0xAC000),(3,0xAC800),(5,0xAB800))}
@@ -14,19 +14,28 @@ def build_padding(source, solo_maps, frames):
                 maps.append(b''.join(layer[left][y*64:y*64+32]+layer[right][y*64+32:(y+1)*64]
                                      for y in range(32)))
             layouts.append((maps,(left==3,right==3),13))
+    return layouts
+
+
+def build_padding(source, solo_maps, borders, color_maps):
+    from timer_border import BORDER_CELLS
+    layouts=timer_layouts(source,solo_maps)
     data=bytearray();descriptors=bytearray()
-    silver=struct.unpack_from('<12H',frames)
     # BG2 map base $1800, BG3 map base $8800 (VRAM byte addresses). The
     # latter's two live rows occupy four reserved, unreferenced font tiles.
     destinations=(0xEE0,0xF40,0x46E0,0x4740)
-    for maps,doctors,col in layouts:
+    for index,(maps,doctors,col) in enumerate(layouts):
         record=bytearray()
         for layer in range(2):
             for edge,row in enumerate((23,26)):
                 words=list(struct.unpack_from('<32H',maps[layer],row*64))
                 for x in range(6):
                     if not doctors[x//3]:
-                        words[col+x]=silver[edge*6+x] if layer==0 else 0x1FF
+                        if layer==0:
+                            cell=BORDER_CELLS.index((0 if edge==0 else 3,x))
+                            words[col+x]=struct.unpack_from('<H',borders,index*32+cell*2)[0]
+                        else:
+                            words[col+x]=struct.unpack_from('<H',color_maps[index],row*64+(col+x)*2)[0]
                 record.extend(struct.pack('<32H',*words))
         for offset,destination in zip(range(0,256,64),destinations):
             # Native VRAM queue: DMAP/BBAD, source/bank, count, VMADD, VMAIN.

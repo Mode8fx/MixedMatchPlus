@@ -8,6 +8,7 @@ from normal_menu import build_normal_menu
 from custom_menu import build_music_row
 from timer import build_timer, FONT_FIRST_TILE
 from timer_padding import build_padding
+from timer_border import build_border, COLOR_FIRST_TILE
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -59,14 +60,13 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     hook(0x8AD03C,'solo_initial_maps')
     put(offset(0x8AD36E),struct.pack('<H',labels['solo_reload_init'] & 0xffff))
 
-    graphics,frame,minutes,seconds=build_timer(source)
-    for pc,data in ((0x9D9000,graphics),(0x9C9300,frame),
+    timer_graphics,frame,minutes,seconds=build_timer(source)
+    for pc,data in ((0x9C9300,frame),
                     (0x9CA000,minutes),(0x9CA800,seconds)):
         off=offset(pc)
         if source[off:off+len(data)]!=b'\xff'*len(data):
             raise ValueError(f'Timer extension space is not blank at ${pc:06X}')
         put(off,data)
-    put(offset(labels['timer_font_length'])+1,struct.pack('<H',len(graphics)))
     put(offset(labels['timer_font_destination'])+1,struct.pack('<H',(0x2000+FONT_FIRST_TILE*32)//2))
 
     # These native color maps belong to Mixed Match. Keep the timer's subscreen
@@ -196,7 +196,23 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
         if source[off:off+len(maps)]!=b'\xff'*len(maps):
             raise ValueError(f'Solo background space is not blank at {destination:06X}')
         put(off,maps)
-    for pc,data in zip((0x9CF000,0x9CFC00,0x9CFE00),build_padding(source,padding_maps,frame)):
+    timer_graphics,borders,color_font,color_maps=build_border(
+        source,padding_maps,timer_graphics,frame,minutes,seconds)
+    for pc,data in ((0x9D9000,timer_graphics),(0x9C9400,borders),(0x9E8000,color_font)):
+        off=offset(pc)
+        if source[off:off+len(data)]!=b'\xff'*len(data):
+            raise ValueError(f'Timer border space is not blank at ${pc:06X}')
+        put(off,data)
+    put(offset(labels['timer_font_length'])+1,struct.pack('<H',len(timer_graphics)))
+    put(offset(labels['timer_color_length'])+1,struct.pack('<H',len(color_font)))
+    put(offset(labels['timer_color_destination'])+1,struct.pack('<H',(0xA000+COLOR_FIRST_TILE*16)//2))
+    for index,destination in enumerate((0x9CC800,0x9CD800,0x9CE800)):
+        put(offset(destination),color_maps[index])
+    for index,base in ((3,0xAC000),(7,0xAC800),(11,0xAB800)):
+        for row in range(23,27):
+            off=row*64+26
+            put(base+off,color_maps[index][off:off+12])
+    for pc,data in zip((0x9CF000,0x9CFC00,0x9CFE00),build_padding(source,padding_maps,borders,color_maps)):
         off=offset(pc)
         if source[off:off+len(data)]!=b'\xff'*len(data):
             raise ValueError(f'Timer padding space is not blank at ${pc:06X}')

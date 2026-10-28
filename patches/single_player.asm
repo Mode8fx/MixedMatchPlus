@@ -697,6 +697,7 @@ timer_font_destination:
 timer_font_length:
   pea.w $0000
   jsl.l $808B0B
+  jsl.l timer_border_load
   ; A transparent BG3 tile for the panel's subscreen cutout. Otherwise native
   ; background subtraction tints the white digits green/pink/gold.
   lda.b #$8E
@@ -1145,6 +1146,7 @@ timer_padding_right_valid:
   sta.b $00
 timer_padding_key_ready:
   lda.b $00
+  jsl.l timer_border_prepare
   cmp.w $1EFC
   bne timer_padding_changed
   rtl
@@ -1223,6 +1225,64 @@ timer_padding_initial_load:
   sep.b #$20
   jsl.l $808B0B
   rep.b #$20
+  rtl
+
+; Replace only the 16 static frame cells with the current layout's background
+; composites. The eight numeral cells keep the shared native clock lookup.
+org $9C8B00
+timer_border_prepare:
+  pha
+  asl A
+  asl A
+  asl A
+  asl A
+  asl A
+  tax
+  lda.l $9C9400,X
+  sta.l $7F0D00
+  lda.l $9C9402,X
+  sta.l $7F0D02
+  lda.l $9C9404,X
+  sta.l $7F0D04
+  lda.l $9C9406,X
+  sta.l $7F0D06
+  lda.l $9C9408,X
+  sta.l $7F0D08
+  lda.l $9C940A,X
+  sta.l $7F0D0A
+  lda.l $9C940C,X
+  sta.l $7F0D0C
+  lda.l $9C940E,X
+  sta.l $7F0D16
+  lda.l $9C9410,X
+  sta.l $7F0D18
+  lda.l $9C9412,X
+  sta.l $7F0D22
+  lda.l $9C9414,X
+  sta.l $7F0D24
+  lda.l $9C9416,X
+  sta.l $7F0D26
+  lda.l $9C9418,X
+  sta.l $7F0D28
+  lda.l $9C941A,X
+  sta.l $7F0D2A
+  lda.l $9C941C,X
+  sta.l $7F0D2C
+  lda.l $9C941E,X
+  sta.l $7F0D2E
+  pla
+  rtl
+
+org $9C8C00
+timer_border_load:
+  lda.b #$9E
+  pha
+  pea.w $8000
+timer_color_destination:
+  pea.w $0000
+timer_color_length:
+  pea.w $0000
+  jsl.l $808B0B
   rtl
 
 org $9C8000

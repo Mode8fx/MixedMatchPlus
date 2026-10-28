@@ -1,9 +1,9 @@
-"""Build native Tetris/Dr. Mario timer halves and the 8x16 status-number font."""
+"""Build matching metal timer frames and the native 8x16 status-number font."""
 import struct
 
 from build_rom import decode_tile, encode_tile
 
-FONT_FIRST_TILE = 0x1B9
+FONT_FIRST_TILE = 0x150
 STYLE_STRIDE = 0x400
 GLYPH_X = (8,15,22,26,33)
 # Alternate BG3 map rows share these otherwise unused character slots. They
@@ -16,47 +16,41 @@ def font_colors(doctor=False):
     return (8,10,9) if doctor else (2,15,3)
 
 
+def tetris_corner_pixels(source, bottom=False):
+    """The native right-hand 8x8 corner, including its original shading.
+
+    A corner crosses three source tiles. Its five-pixel connector has the
+    native three-pixel rail centered on it. No scaling or recoloring is used.
+    """
+    left=decode_tile(source,0x232,0x70000)
+    corner=decode_tile(source,0x23C if bottom else 0x236,0x70000)
+    side=decode_tile(source,0x23A if bottom else 0x238,0x70000)
+    if bottom:
+        return [[0,0]+side[y][:6] for y in (6,7)]+[
+            left[y][6:]+corner[y][:6] for y in range(6)]
+    return [left[y][6:]+corner[y][:6] for y in range(1,8)]+[[0,0]+side[0][:6]]
+
+
 def frame_pixels(source, doctor=False):
-    """Join full native 8x8 frame/connector tiles; retain every bevel pixel."""
-    canvas = [[0] * 48 for _ in range(32)]
-
-    def put(tile,x,y,flip=False,divider=False):
-        pixels=decode_tile(source,tile,0x70000)
-        if divider:
-            for row in pixels:
-                for col in range(5,8):
-                    if row[col] in (3,9):row[col]=0
-        if flip:pixels=[row[::-1] for row in pixels]
-        for dy,row in enumerate(pixels):canvas[y+dy][x:x+8]=row
-
-    if doctor:
-        put(0x37,0,0);put(0x37,40,0,flip=True)
-        put(0x4A,0,24);put(0x4A,40,24,flip=True)
-        for x in range(8,40,8):
-            put(0x48,x,0);put(0x4B,x,24)
-        for y in (8,16):
-            put(0x49,0,y);put(0x49,40,y,flip=True)
-    else:
-        for y,corner in ((0,0x236),(24,0x23C)):
-            put(0x231,24,y)
-            put(0x232,32,y);put(corner,40,y,divider=True)
-        for y,edge in ((8,0x238),(16,0x23A)):
-            put(edge,40,y,divider=True)
-        for row in canvas:row[:24]=row[24:][::-1]
-
-    if doctor:
-        # The native gold top edge has four blank rows, whereas the silver
-        # horizontal edge starts on row two. Move the complete gold frame,
-        # including its bottom edge, without moving the separately drawn font.
-        # Clear the vacated rows so no part of the old frame survives a wipe.
-        canvas=canvas[2:]+[[0]*48 for _ in range(2)]
-
-    for y,row in enumerate(canvas):
-        for x,pixel in enumerate(row):
-            if pixel==0:
-                # Native gold-frame transparency above the upper edge is
-                # outside the box. It must never turn into a white stripe.
-                row[x]=(9 if 4<=x<44 and 6<=y<25 else 8) if doctor else 3
+    """Three-pixel rails, with unmodified native corners on the silver frame."""
+    bevel=(2,3,5) if doctor else (9,10,13)
+    body=9 if doctor else 3
+    outside=8 if doctor else 3
+    canvas=[[outside]*48 for _ in range(32)]
+    left,right=(0,47) if doctor else (3,44)
+    for y in range(2,30):
+        for x in range(left,right+1):
+            depth=min(x-left,right-x,y-2,29-y)
+            canvas[y][x]=bevel[depth] if depth<3 else body
+    if not doctor:
+        # Original top corner: y=1..8. Translate the original bottom corner
+        # down one pixel to y=23..30 so both rails share the gold frame's
+        # y=2..4 / 27..29 positions. Mirror only the left-hand copies.
+        for bottom,y in ((False,1),(True,23)):
+            pixels=tetris_corner_pixels(source,bottom)
+            for dy,row in enumerate(pixels):
+                canvas[y+dy][38:46]=[p or body for p in row]
+                canvas[y+dy][2:10]=[p or body for p in row[::-1]]
     return canvas
 
 

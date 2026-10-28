@@ -3,6 +3,7 @@ from pathlib import Path
 from build_rom import OUTPUT, ROOT
 from snes_disasm import offset
 from verify_menu import Emulator
+from timer_border import BORDER_CELLS
 
 
 def expected_timer_map(rom,ram):
@@ -11,9 +12,15 @@ def expected_timer_map(rom,ram):
     lf=offset(0x9c9300)+left//32;rf=offset(0x9c9300)+right//32
     mm=offset(0x9ca000)+left+minutes*12
     ss=offset(0x9ca800)+right+seconds*12
-    return (rom[lf:lf+6]+rom[rf+6:rf+12]
+    result=bytearray(rom[lf:lf+6]+rom[rf+6:rf+12]
             +rom[mm:mm+6]+rom[ss:ss+6]+rom[mm+6:mm+12]+rom[ss+6:ss+12]
             +rom[lf+12:lf+18]+rom[rf+18:rf+24])
+    p1=min((ram[0x3f1]-1)//2,2);p2=max(0,min((ram[0x8f1]-1)//2,2))
+    key=3+p1*3+p2 if ram[0x1ef0] else p1
+    base=offset(0x9c9400)+key*32
+    for i,(y,x) in enumerate(BORDER_CELLS):
+        result[(y*6+x)*2:(y*6+x+1)*2]=rom[base+i*2:base+i*2+2]
+    return bytes(result)
 
 
 def verify_intro_timer(core):

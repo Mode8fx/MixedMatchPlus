@@ -4,6 +4,8 @@ import struct
 from build_rom import OUTPUT, ROOT, SOURCE, decode_tile
 from verify_menu import Emulator
 from timer import frame_pixels, FONT_FIRST_TILE, GLYPH_X, font_colors
+from timer_border import silver_clear_mask, map_pixels
+from timer_padding import timer_layouts
 
 
 def timer_column(ram):
@@ -24,36 +26,56 @@ def displayed_timer_pixel(r,v,col,x,y,pixel_format=2):
     p=glyph[7-dy if entry&0x8000 else dy][7-dx if entry&0x4000 else dx]
     main=struct.unpack_from('<H',r,0x1500+(((entry>>10)&7)*16+p if p else 0)*2)[0]
     sub=0
-    if padding:
-        entry=struct.unpack_from('<H',v,0x8800+row*64+column*2)[0]
-        dy=7-dy if entry&0x8000 else dy;dx=7-dx if entry&0x4000 else dx
-        off=0xa000+(entry&1023)*16+dy*2
-        p=((v[off]>>(7-dx))&1)|(((v[off+1]>>(7-dx))&1)<<1)
-        if p:sub=struct.unpack_from('<H',r,0x1500+(((entry>>10)&7)*4+p)*2)[0]
+    entry=struct.unpack_from('<H',v,(0x8800 if padding else 0x1000)+row*64+column*2)[0]
+    dy=(184+y)%8;dx=x%8
+    dy=7-dy if entry&0x8000 else dy;dx=7-dx if entry&0x4000 else dx
+    off=0xa000+(entry&1023)*16+dy*2
+    p=((v[off]>>(7-dx))&1)|(((v[off+1]>>(7-dx))&1)<<1)
+    if p:sub=struct.unpack_from('<H',r,0x1500+(((entry>>10)&7)*4+p)*2)[0]
     red,green,blue=(max(0,((main>>shift)&31)-((sub>>shift)&31)) for shift in (0,5,10))
     if pixel_format==2:
         return red*255//31,(green*2+(green>>4))*255//63,blue*255//31
     return red*255//31,green*255//31,blue*255//31
 
 
-def verify_native_frame_tiles(source):
-    # Independent source-tile anchors: whole corners/connectors must survive,
-    # rather than being reconstructed from a single sampled column.
-    metal=frame_pixels(source,False);gold=frame_pixels(source,True)
-    assert all(row[:24]==row[24:][::-1] for row in metal), 'Tetris frame halves are not mirrored'
-    for tile,x,y in ((0x231,24,0),(0x232,32,0),(0x231,24,24),(0x232,32,24)):
-        original=decode_tile(source,tile,0x70000)
-        assert [row[x:x+8] for row in metal[y:y+8]]==[[p or 3 for p in row] for row in original], 'Native metal connector was cropped/redrawn'
-    for tile,x,y,flip in ((0x37,0,0,False),(0x37,40,0,True),(0x4A,0,24,False),(0x4A,40,24,True),(0x49,0,8,False)):
-        original=decode_tile(source,tile,0x70000)
-        if flip:original=[row[::-1] for row in original]
-        for dy,row in enumerate(original):
-            for dx,p in enumerate(row):
-                if p:assert gold[y+dy-2][x+dx]==p, 'Native gold corner/bevel did not move up two pixels'
-    assert all(p==8 for row in gold[:2]+gold[30:] for p in row), 'Old gold frame/padding survived the move'
-    assert gold[2][8:40]==[2]*32, 'Gold top edge is not aligned with the silver horizontal edge'
-    assert all(p!=3 for p in metal[2][8:40]), 'Silver horizontal edge moved'
-    assert gold[29][8:40]==[7]*32, 'Gold bottom edge is not aligned with the silver frame'
+def verify_frame_design(source):
+    clear=silver_clear_mask(source)
+    assert all(clear[0]) and all(clear[31]), 'Outer padding is not cleared'
+    assert all(clear[y][x] for y in range(32) for x in (0,1,46,47)), 'Black side padding remains'
+    assert not any(clear[y][x] for y in range(8,24) for x in range(8,40)), 'Background mask cuts into the numerals'
+    for doctor in (False,True):
+        frame=frame_pixels(source,doctor)
+        body=9 if doctor else 3
+        assert all(row==row[::-1] for row in frame), 'Timer frame is not horizontally symmetric'
+        for x in range(10,38):
+            assert [y for y in range(2,8) if frame[y][x]!=body]==[2,3,4], 'Top rail is not exactly three pixels'
+            assert [y for y in range(24,30) if frame[y][x]!=body]==[27,28,29], 'Bottom rail is not exactly three pixels'
+        for y in range(9,23):
+            expected=list(range(3))+list(range(45,48)) if doctor else [3,4,5,42,43,44]
+            assert [x for x in range(48) if frame[y][x]!=body]==expected, 'Side rails are not exactly three pixels'
+        assert not any(frame[y][x]!=body for y in range(9,23) for x in range(8,40)), 'Frame intrudes into the numerals'
+        for y in (2,3):
+            assert frame[y][16]!=frame[y+1][16], 'Bevel gradient lost a shade'
+        if doctor:
+            assert frame==frame[::-1], 'Gold frame is not vertically symmetric'
+            assert all(all(p==8 for p in frame[y]) for y in (0,1,30,31)), 'Gold frame protrudes into background bands'
+        else:
+            # Reassemble the ORIGINAL source tiles independently of the frame
+            # builder. The 8x8 corner crosses tile boundaries; all colors,
+            # including its original dark edge, must survive unchanged.
+            flat=decode_tile(source,0x232,0x70000)
+            top=decode_tile(source,0x236,0x70000)
+            top_side=decode_tile(source,0x238,0x70000)
+            bottom=decode_tile(source,0x23c,0x70000)
+            bottom_side=decode_tile(source,0x23a,0x70000)
+            for dy in range(8):
+                tr=flat[dy+1][6:]+top[dy+1][:6] if dy<7 else [0,0]+top_side[0][:6]
+                br=[0,0]+bottom_side[dy+6][:6] if dy<2 else flat[dy-2][6:]+bottom[dy-2][:6]
+                assert frame[dy+1][38:46]==[p or 3 for p in tr], 'Top native corner was recolored, scaled or moved'
+                assert frame[dy+23][38:46]==[p or 3 for p in br], 'Bottom native corner was recolored or scaled'
+            assert [y for y in range(8) if frame[y][38]!=body]==[1,2,3,4,5], 'Top connector is not five pixels'
+            assert [y for y in range(24,32) if frame[y][38]!=body]==[26,27,28,29,30], 'Bottom connector is not five pixels'
+            assert all(frame[8][x]==15 for x in range(41,46)), 'Five-pixel side connector changed'
 
 
 def check_timer(e, minutes=None, seconds=None):
@@ -62,6 +84,7 @@ def check_timer(e, minutes=None, seconds=None):
     seconds=r[0x409] if seconds is None else seconds
     col=timer_column(r)
     styles=timer_styles(r)
+    clear=silver_clear_mask(source)
     # Reconstruct BG2 from uploaded graphics, checking source glyph pixels,
     # exact centering, opaque backing, and the two subscreen cutouts.
     pixels=[]
@@ -75,14 +98,15 @@ def check_timer(e, minutes=None, seconds=None):
             if entry&0x4000:glyph=[row[::-1] for row in glyph]
             for y in range(8):line[y].extend(glyph[y])
             assert struct.unpack_from('<H',v,row*64+x*2)[0]==0, 'Divider crosses timer'
-            assert struct.unpack_from('<H',v,0x1000+row*64+x*2)[0]==0x1ff, 'Timer color cutout lost'
+            ce=struct.unpack_from('<H',v,0x1000+row*64+x*2)[0]
+            assert ce==0x1ff or not doctor and 0x180<=ce&1023<0x1ff, 'Timer color cutout lost'
         pixels.extend(line)
-    assert all(all(p for p in row) for row in pixels), 'Transparent timer backing'
     native_frames=[frame_pixels(source,doctor) for doctor in styles]
     for y in range(32):
         for x in range(48):
             if y<8 or y>=24 or x<8 or x>=40:
-                assert pixels[y][x]==native_frames[x//24][y][x], 'Native timer frame art incorrect'
+                if styles[x//24] or not clear[y][x]:
+                    assert pixels[y][x]==native_frames[x//24][y][x], 'Native timer frame art incorrect'
     for i,n in ((0,minutes//10),(1,minutes%10),(3,seconds//10),(4,seconds%10)):
         native=decode_tile(source,0x130+n,0x70000)+decode_tile(source,0x140+n,0x70000)
         actual=[row[GLYPH_X[i]:GLYPH_X[i]+7] for row in pixels[8:24]]
@@ -112,6 +136,30 @@ def check_timer(e, minutes=None, seconds=None):
         for x in range(48):
             expected=displayed_timer_pixel(r,v,col,x,y,e.pixel_format)
             assert picture.getpixel((expected_x+x,184+y))==expected, f'Timer frame/background tinted or obscured at {(x,y)}'
+    # Independently reconstruct the unmodified native background at every
+    # removed exterior pixel, including the pixels around the native silver corners.
+    solo_maps={n:(OUTPUT.read_bytes()[base:base+0x800],b'')
+               for n,base in ((1,0xe4000),(3,0xe5000),(5,0xe6000))}
+    for n,base in ((1,0xac000),(3,0xac800),(5,0xab800)):
+        bg3=bytearray(source[base:base+0x800])
+        for yy in range(32):
+            for xx in range(16,32):
+                ce=struct.unpack_from('<H',source,base+(8+yy%4)*64+(xx%2)*2)[0] if n==3 else struct.unpack_from('<H',source,base+10*64)[0]
+                struct.pack_into('<H',bg3,yy*64+xx*2,ce)
+        solo_maps[n]=(solo_maps[n][0],bytes(bg3))
+    maps,_,_=timer_layouts(source,solo_maps)[r[0x1efc]]
+    for y in range(32):
+        for x in range(48):
+            if styles[x//24] or not clear[y][x]:continue
+            values=[]
+            for layer in (0,1):
+                entry=struct.unpack_from('<H',maps[layer],(23+y//8)*64+(col+x//8)*2)[0]
+                p=map_pixels(source,entry,bool(layer))[y%8][x%8]
+                palette=((entry>>10)&7)*(4 if layer else 16)
+                values.append(struct.unpack_from('<H',r,0x1500+(palette+p if p else 0)*2)[0] if p or not layer else 0)
+            rgb=[max(0,((values[0]>>shift)&31)-((values[1]>>shift)&31)) for shift in (0,5,10)]
+            expected=(rgb[0]*255//31,(rgb[1]*2+(rgb[1]>>4))*255//63,rgb[2]*255//31) if e.pixel_format==2 else tuple(c*255//31 for c in rgb)
+            assert picture.getpixel((expected_x+x,184+y))==expected, f'Cleared silver padding does not match native background at {(x,y)}'
     if any(styles):
         index=r[0x1efc]
         for i,destination in enumerate((0x1dc0,0x1e80,0x8dc0,0x8e80)):
@@ -131,7 +179,7 @@ def verify_timer(core):
     from validate_single_player import menu,press,active,until
     dest=ROOT/'custom'/'validation'
     source=SOURCE.read_bytes()
-    verify_native_frame_tiles(source)
+    verify_frame_design(source)
     native_tiles={entry&0x3ff for base in (0xA8800,0xA9000,0xA9800,0xAA000,0xAA800)
                   for entry in struct.unpack_from('<1024H',source,base)
                   if FONT_FIRST_TILE<=entry&0x3ff<0x300}
@@ -169,8 +217,8 @@ def verify_timer(core):
                         # Existing solo cleanup intentionally edits these shared
                         # divider/frame tiles after the font load; its pixel
                         # invariants are checked by background_capture().
-                        if not two and tile in (0x2c8,0x236,0x238,0x23a,0x23c,0x23e):continue
-                        assert vram[0x2000+tile*32:0x2000+(tile+1)*32]==source[0x70000+tile*32:0x70000+(tile+1)*32], 'Timer upload damaged native decorative graphics'
+                        if not two and tile in (0x1a5,0x1b5,0x2c8,0x236,0x238,0x23a,0x23c,0x23e):continue
+                        assert vram[0x2000+tile*32:0x2000+(tile+1)*32]==source[0x70000+tile*32:0x70000+(tile+1)*32], f'Timer upload damaged native decorative character {tile:03x}'
                     prefix=('custom' if custom else 'normal')+('-two-player' if two else '-solo')
                     e.screenshot(dest/f'{prefix}-timer-stage-{stage}.png')
                     if two and stage!=1:
@@ -204,4 +252,4 @@ def verify_timer(core):
                 e.screenshot(dest/f'{prefix}-timer-zero.png')
                 until(e,lambda r:r[0xbaf]==0x31)
             finally:e.close()
-    print('PASS rendered timer: native 8x16 font and silver/gold frame art/colors, all four player-stage combinations, both solo styles, minute/second digits, both routes, rollover, pause, transitions, expiry')
+    print('PASS rendered timer: native 8x16 font and symmetric silver/gold frames/colors, all four player-stage combinations, both solo styles, minute/second digits, both routes, rollover, pause, transitions, expiry')
