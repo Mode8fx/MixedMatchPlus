@@ -359,32 +359,86 @@ solo_results_main:
   cmp.b #$02
   beq solo_results_fade
   cmp.b #$03
-  beq solo_results_build
-  cmp.b #$04
-  beq solo_results_input
+  bcc solo_results_fade
+  cmp.b #$06
+  bcc solo_results_round
+  beq solo_results_total
+  cmp.b #$07
+  bne solo_results_exit
+  jmp.w solo_results_input
+solo_results_exit:
   ; Same fade back to Mixed Match title as the original results screen.
   jsr.w $DADD
-  bra solo_results_draw
+  brl.w solo_results_draw
 solo_results_sound:
   jsr.w $D916
-  bra solo_results_draw
+  brl.w solo_results_draw
 solo_results_fade:
   jsr.w $D921
-  bra solo_results_draw
-solo_results_build:
-  jsl.l solo_results_template
+  brl.w solo_results_draw
+solo_results_round:
+  dec.w $0316
+  beq solo_results_round_ready
+  brl.w solo_results_draw
+solo_results_round_ready:
   ldx.w #$0000
   stx.w $0B00
+  lda.w $0305
+  cmp.b #$04
+  beq solo_results_round2
+  cmp.b #$05
+  beq solo_results_round3
   jsr.w $DC1F
+  ldx.w #$0198
+  bra solo_results_round_done
+solo_results_round2:
   jsr.w $DC55
+  ldx.w #$0258
+  bra solo_results_round_done
+solo_results_round3:
   jsr.w $DC92
   jsr.w $DD2D
-  jsr.w $DCF7
+  ldx.w #$0318
+solo_results_round_done:
   jsl.l solo_results_scores
-  lda.b #$04
-  sta.w $0305
-  bra solo_results_draw
+  lda.b #$3C
+  sta.w $0316
+  inc.w $0305
+  stz.w $0306
+  brl.w solo_results_draw
+solo_results_total:
+  lda.w $0306
+  beq solo_results_total_wait
+  cmp.b #$01
+  beq solo_results_total_show
+  dec.w $0316
+  bne solo_results_draw
+  inc.w $0305
+  stz.w $0306
+  brl.w solo_results_draw
+solo_results_total_wait:
+  dec.w $0316
+  bne solo_results_draw
+  inc.w $0306
+  brl.w solo_results_draw
+solo_results_total_show:
+  ldx.w #$0000
+  stx.w $0B00
+  jsr.w $DCF7
+  ldx.w #$0498
+  jsl.l solo_results_scores
+  lda.b #$3C
+  sta.w $0316
+  inc.w $0306
+  brl.w solo_results_draw
 solo_results_input:
+  jsr.w $DEBF
+  lda.w $0306
+  bne solo_results_input_ready
+  jsl.l solo_results_prompt
+  inc.w $0306
+  brl.w solo_results_draw
+solo_results_input_ready:
   rep.b #$20
   lda.b $41
   bit.w #$1080
@@ -1384,44 +1438,70 @@ normal_frames_done:
 org $9C8219
 solo_results_scores:
   php
-  rep.b #$20
+  rep.b #$30
   phx
-  ldx.w #$000C
+  phy
+  ; X is the native first-row score destination. Copy backwards because
+  ; centering overlaps that source; touch only the newly revealed score.
+  txa
+  clc
+  adc.w #$000C
+  tax
+  ldy.w #$0007
 solo_results_move:
-  lda.l $7F0198,X
-  sta.l $7F01A2,X
-  lda.l $7F01D8,X
-  sta.l $7F01E2,X
-  lda.l $7F0258,X
-  sta.l $7F0262,X
-  lda.l $7F0298,X
-  sta.l $7F02A2,X
-  lda.l $7F0318,X
-  sta.l $7F0322,X
-  lda.l $7F0358,X
-  sta.l $7F0362,X
-  lda.l $7F0498,X
-  sta.l $7F04A2,X
-  lda.l $7F04D8,X
-  sta.l $7F04E2,X
+  lda.l $7F0000,X
+  sta.l $7F0008,X
+  lda.l $7F0040,X
+  sta.l $7F0048,X
   dex
   dex
-  bpl solo_results_move
-  ldx.w #$0000
+  dey
+  bne solo_results_move
+  inx
+  inx
+  ldy.w #$0004
   lda.w #$2000
 solo_results_clear:
-  sta.l $7F0198,X
-  sta.l $7F01D8,X
-  sta.l $7F0258,X
-  sta.l $7F0298,X
-  sta.l $7F0318,X
-  sta.l $7F0358,X
-  sta.l $7F0498,X
-  sta.l $7F04D8,X
+  sta.l $7F0000,X
+  sta.l $7F0040,X
   inx
   inx
-  cpx.w #$000A
+  dey
   bne solo_results_clear
+  ply
+  plx
+  plp
+  rtl
+
+org $9C8300
+results_initial_map:
+  lda.w $1EF0
+  bne results_initial_map_upload
+  ; Three result-only tiles preserve the native yellow 1P glyphs at a
+  ; four-pixel offset. Native result graphics leave $1C0..$1FF unused.
+  lda.b #$9C
+  pha
+  pea.w $90A0
+  pea.w $2C00
+  pea.w $0060
+  jsl.l $808B0B
+  jsl.l solo_results_template
+results_initial_map_upload:
+  jsl.l $809440
+  rtl
+
+solo_results_prompt:
+  php
+  rep.b #$30
+  phx
+  ldx.w #$0000
+solo_results_prompt_copy:
+  lda.l $9C9080,X
+  sta.l $7F0614,X
+  inx
+  inx
+  cpx.w #$0016
+  bne solo_results_prompt_copy
   plx
   plp
   rtl

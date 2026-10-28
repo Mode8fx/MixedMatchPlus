@@ -293,6 +293,8 @@ def verify(core):
     verify_timer(core)
     from validate_intro_timer import verify_intro_timer
     verify_intro_timer(core)
+    from validate_results import verify_results
+    verify_results(core)
     from validate_transition import verify_solo_transition
     verify_solo_transition(core)
     from validate_dr_clear import verify_dr_clear
@@ -357,7 +359,7 @@ def verify(core):
             e.write_memory(0x41a,(5678).to_bytes(4,'little'))
             e.write_memory(0x270,(9000).to_bytes(4,'little'))
             e.write_memory(0x408,b'\x00\x00\x00')
-            until(e,lambda r:r[0xbaf]==0x31 and r[0x305]==4)
+            until(e,lambda r:r[0xbaf]==0x31 and r[0x305]==7 and r[0x306]==1)
             e.run(2)
             assert e.memory()[0x805]==0, 'Timer started an inactive P2 end state'
             assert not e.memory()[0x34]&0x80, 'Obsolete solo window HDMA leaked into results'
@@ -410,7 +412,7 @@ def verify(core):
         press(e,3);active(e,1)
         for _ in range(100):
             e.run(60)
-            if e.memory()[0xbaf]==0x31 and e.memory()[0x305]==4:break
+            if e.memory()[0xbaf]==0x31 and e.memory()[0x305]==7 and e.memory()[0x306]==1:break
         else:raise AssertionError('Natural one-minute session did not finish')
         e.screenshot(DEST/'natural-one-minute-results.png')
         print('PASS custom one-minute session through natural timer expiry (no RAM edits)')

@@ -49,6 +49,7 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     hook(0x8ACFAC,'mixed_pause')
     hook(0x8AD735,'mixed_timer_two',6,0x4c)
     hook(0x8AD8F0,'solo_results',4,0x5c)
+    hook(0x8ADBFA,'results_initial_map',4,0x22)
     hook(0x8AD027,'mixed_init_two',9)
     hook(0x83DD41,'mixed_sprites',4,0x5c)
     hook(0x83DF60,'normal_second_marker')
@@ -107,16 +108,33 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
 
     put(offset(0x9C9040),text('1 PLAYER GAME'))
     put(offset(0x9C9060),text('BGM1BGM2BGM3OFF '))
+    put(offset(0x9C9080),text('PRESS START'))
     result=bytearray(source[0xB3000:0xB3780])
     # One score column, no opponent labels, judgement, or winner comparison.
-    for row in range(4,28):
+    for row in range(4,27):
         for col in range(20,29):struct.pack_into('<H',result,row*64+col*2,0x2000)
     for row in (4,21,22,23,24,25,26):
         for col in range(2,29):struct.pack_into('<H',result,row*64+col*2,0x2000)
     for row in (16,17):
         for col in range(10,29):struct.pack_into('<H',result,row*64+col*2,0x2000)
-    result[4*64+18:4*64+44]=text('1 PLAYER GAME')
-    result[24*64+20:24*64+42]=text('PRESS START')
+    # The vine is shared decoration, not part of the removed P2 column.
+    result[16*64+22:16*64+56]=source[0xB3000+16*64+22:0xB3000+16*64+56]
+    # Center the native pending-score dashes as well as the eventual numbers.
+    for row in (6,7,9,10,12,13,18,19):
+        result[row*64+32:row*64+46]=source[0xB3000+row*64+24:0xB3000+row*64+38]
+        for col in range(12,16):struct.pack_into('<H',result,row*64+col*2,0x2000)
+    # The vine occupies x=88..223 (center 156). Center a 56px score field
+    # at x=128..183 and the native 16px label at x=148..163. The label
+    # needs a half-tile offset; retain its exact native ink/shadow pixels.
+    label=[decode_tile(source,1,0x42000),decode_tile(source,25,0x42000)]
+    pixels=[[0]*4+label[0][y]+label[1][y]+[0]*4 for y in range(8)]
+    graphics=b''.join(encode_tile([r[x:x+8] for r in pixels]) for x in (0,8,16))
+    used={v&0x3ff for base in (0xB3000,0xAB000)
+          for v in struct.unpack_from('<960H',source,base)}
+    if used & {0x1c0,0x1c1,0x1c2}:
+        raise ValueError('Native results already reference the centered label tiles')
+    put(offset(0x9C90A0),graphics)
+    result[4*64+36:4*64+42]=struct.pack('<3H',0x25c0,0x25c1,0x25c2)
     put(offset(0x9C9800),result)
     # Checker pixels also share five tiles with the status-panel borders. Keep
     # their beveled frames and clear only the outer three-pixel checker strip.
