@@ -291,6 +291,8 @@ def verify(core):
     verify_custom_repeat(core)
     from validate_timer import verify_timer
     verify_timer(core)
+    from validate_intro_timer import verify_intro_timer
+    verify_intro_timer(core)
     from validate_transition import verify_solo_transition
     verify_solo_transition(core)
     from validate_dr_clear import verify_dr_clear

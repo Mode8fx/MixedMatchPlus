@@ -6,6 +6,8 @@ local log = assert(io.open(base .. cfg.name .. ".log", "w"))
 local trace = assert(io.open(base .. cfg.name .. ".trace", "w"))
 local timerDmaCounts = {}
 local paddingDmaCounts = {}
+local introFrames = 0
+local introLag = 0
 if cfg.timer_dma_start then
   local pending = false
   emu.addMemoryCallback(function() pending = true end,emu.callbackType.exec,cfg.timer_dma_start,cfg.timer_dma_start)
@@ -74,6 +76,25 @@ emu.addEventCallback(function()
   for _,write in ipairs(cfg.writes) do
     if write[1]==frame then emu.write(write[2],write[3],emu.memType.snesWorkRam) end
   end
+  if cfg.intro_timer_check then
+    local function ram(a) return emu.read(a,emu.memType.snesWorkRam) end
+    local phase=ram(0x3F1)
+    if (phase==3 or phase==5) and ram(0x305)==3 and ram(0x306)==0 and ram(0x6C)==0 and ram(0x6D)==127 then
+      introFrames=introFrames+1
+      local dest=(ram(0x1EFA)+ram(0x1EFB)*256)*2
+      local matches=true
+      for row=0,3 do
+        for x=0,11 do
+          if emu.read(dest+row*64+x,emu.memType.snesVideoRam)~=ram(0x10D00+row*12+x) then matches=false end
+        end
+      end
+      introLag=matches and 0 or introLag+1
+      if introLag>2 then
+        log:write('FAIL stale introduction timer: frame '..frame..' phase '..phase..' lag '..introLag..'\n');log:flush()
+        emu.stop(1)
+      end
+    else introLag=0 end
+  end
   if cfg.dumps[frame] then
     dump(frame.."-ram",emu.memType.snesWorkRam,131072)
     dump(frame.."-vram",emu.memType.snesVideoRam,65536)
@@ -84,6 +105,10 @@ emu.addEventCallback(function()
     log:flush()
   end
   if frame>=cfg.frames then
+    if cfg.intro_timer_check then
+      if introFrames==0 then log:write('FAIL no introduction frames checked\n');log:flush();emu.stop(1);return end
+      log:write('PASS live introduction timer: '..introFrames..' visible card frames checked\n')
+    end
     for line,count in pairs(timerDmaCounts) do log:write('PASS timer DMA end '..line..': '..count..'\n') end
     for line,count in pairs(paddingDmaCounts) do log:write('PASS padding DMA end '..line..': '..count..'\n') end
     trace:close(); log:close(); emu.stop(0)

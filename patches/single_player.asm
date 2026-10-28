@@ -486,7 +486,10 @@ mixed_sprites:
   stx.w $0B00
   jsr.w $DD54
   lda.w $1EF0
-  beq mixed_sprites_done
+  bne mixed_sprites_two
+  jsl.l solo_shift_sprites
+  rtl
+mixed_sprites_two:
   ldx.w #$0500
   stx.w $0B00
   jsr.w $DD54
@@ -556,19 +559,6 @@ solo_shift_ready:
   lda.b #$17
   sta.b $4D
   sta.b $4E
-  ldx.w #$1900
-solo_sprite_loop:
-  cpx.w $1DC5
-  bcs solo_display_done
-  lda.b $00,X
-  clc
-  adc.w $1EF3
-  sta.b $00,X
-  inx
-  inx
-  inx
-  inx
-  bra solo_sprite_loop
 solo_display_other:
 solo_display_done:
   plb
@@ -925,6 +915,43 @@ timer_transfer_ready:
   lda.b #$01
   sta.w $420B
 timer_transfer_done:
+  rtl
+
+; Relocate completed solo OAM while sprites are built, outside the next
+; frame's vblank transfers. Long GAME-n cards must not consume the timer's
+; upload budget. P2 continues through the untouched native renderer.
+org $9C8800
+solo_shift_sprites:
+  php
+  rep.b #$30
+  phx
+  pha
+  sep.b #$20
+  lda.b #$50
+  ldx.w $03F1
+  cpx.w #$0003
+  bne solo_sprite_shift_ready
+  lda.b #$48
+solo_sprite_shift_ready:
+  sta.w $1EF3
+  ldx.w #$1900
+solo_sprite_loop:
+  cpx.w $1DC5
+  bcs solo_sprite_done
+  lda.b $00,X
+  clc
+  adc.w $1EF3
+  sta.b $00,X
+  inx
+  inx
+  inx
+  inx
+  bra solo_sprite_loop
+solo_sprite_done:
+  rep.b #$30
+  pla
+  plx
+  plp
   rtl
 
 org $9C8900
