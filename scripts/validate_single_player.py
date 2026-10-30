@@ -299,6 +299,8 @@ def verify(core):
     verify_solo_transition(core)
     from validate_dr_clear import verify_dr_clear
     verify_dr_clear(core)
+    from validate_game_over import verify_game_over
+    verify_game_over(core)
     for custom in (False,True):
         prefix='custom' if custom else 'normal'
         e=Emulator(core,OUTPUT)

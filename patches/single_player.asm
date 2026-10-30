@@ -881,6 +881,7 @@ timer_seconds_valid:
   lda.l $9CA80A,X
   sta.l $7F0D22
   jsl.l timer_gold_refresh
+  jsl.l timer_popup_prepare
   jsl.l timer_padding_prepare
   pla
   sta.b $04
@@ -1414,6 +1415,112 @@ timer_gold_refresh_done:
   pla
   plp
   rtl
+
+; The native Dr. Mario Game Over frame/text use BG palettes 4/6 too. Retain
+; their exact pixels/colors in spare palette-1 pens while timer art is active.
+; All work stays in game logic, before the existing BG1/palette DMA uploads.
+org $9C8E00
+timer_popup_prepare:
+  php
+  rep.b #$30
+  pha
+  phx
+  phy
+  lda.w $1EF0
+  and.w #$00FF
+  beq timer_popup_done
+  lda.w $03F1
+  and.w #$00FF
+  cmp.w #$0003
+  bne timer_popup_second
+  lda.w $0305
+  and.w #$00FF
+  cmp.w #$0009
+  bne timer_popup_second
+  ldy.w #$0308
+  jsr.w timer_popup_map
+timer_popup_second:
+  lda.w $08F1
+  and.w #$00FF
+  cmp.w #$0003
+  bne timer_popup_done
+  lda.w $0805
+  and.w #$00FF
+  cmp.w #$0009
+  bne timer_popup_done
+  ldy.w #$0328
+  jsr.w timer_popup_map
+timer_popup_done:
+  ply
+  plx
+  pla
+  plp
+  rtl
+
+timer_popup_map:
+  lda.w #$0006
+  sta.b $02
+timer_popup_row:
+  lda.w #$0008
+  sta.b $00
+timer_popup_cell:
+  tyx
+  lda.l $7F0000,X
+  and.w #$E000
+  sta.b $04
+  lda.l $7F0000,X
+  and.w #$1FFF
+  pha
+  and.w #$03FF
+  sec
+  sbc.w #$00BC
+  cmp.w #$0014
+  bcs timer_popup_skip
+  asl A
+  asl A
+  tax
+  pla
+  cmp.l $9C9700,X
+  bne timer_popup_next
+  lda.l $9C9702,X
+  ora.b $04
+  tyx
+  sta.l $7F0000,X
+timer_popup_next:
+  iny
+  iny
+  dec.b $00
+  bne timer_popup_cell
+  tya
+  clc
+  adc.w #$0030
+  tay
+  dec.b $02
+  bne timer_popup_row
+  ; Refresh only changed colors; native stage loads can replace palette 1.
+  ldx.w #$0000
+timer_popup_palette:
+  lda.l $9C9750,X
+  tay
+  lda.l $9C9752,X
+  cmp.w $1500,Y
+  beq timer_popup_palette_next
+  sta.w $1500,Y
+  sep.b #$20
+  lda.b #$01
+  sta.w $1DC2
+  rep.b #$20
+timer_popup_palette_next:
+  inx
+  inx
+  inx
+  inx
+  cpx.w #$0018
+  bcc timer_popup_palette
+  rts
+timer_popup_skip:
+  pla
+  bra timer_popup_next
 
 org $9C8000
 draw_normal_count:

@@ -196,9 +196,9 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
         if source[off:off+len(maps)]!=b'\xff'*len(maps):
             raise ValueError(f'Solo background space is not blank at {destination:06X}')
         put(off,maps)
-    timer_graphics,borders,color_font,color_maps,palettes=build_border(
+    timer_graphics,borders,color_font,color_maps,palettes,popup=build_border(
         source,padding_maps,timer_graphics,frame,minutes,seconds)
-    for pc,data in ((0x9D9000,timer_graphics),(0x9C9400,borders),(0x9C9600,palettes),(0x9E8000,color_font)):
+    for pc,data in ((0x9D9000,timer_graphics),(0x9C9400,borders),(0x9C9600,palettes),(0x9C9700,popup),(0x9E8000,color_font)):
         off=offset(pc)
         if source[off:off+len(data)]!=b'\xff'*len(data):
             raise ValueError(f'Timer border space is not blank at ${pc:06X}')
