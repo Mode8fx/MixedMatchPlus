@@ -60,13 +60,14 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     hook(0x8AD03C,'solo_initial_maps')
     put(offset(0x8AD36E),struct.pack('<H',labels['solo_reload_init'] & 0xffff))
 
-    timer_graphics,frame,minutes,seconds=build_timer(source)
-    for pc,data in ((0x9C9300,frame),
-                    (0x9CA000,minutes),(0x9CA800,seconds)):
-        off=offset(pc)
-        if source[off:off+len(data)]!=b'\xff'*len(data):
-            raise ValueError(f'Timer extension space is not blank at ${pc:06X}')
-        put(off,data)
+    timer_sets={two:build_timer(source,two) for two in (True,False)}
+    for two,(_,frame,minutes,seconds) in timer_sets.items():
+        bank=0x9C0000 if two else 0x9E0000
+        for pc,data in ((bank+0x9300,frame),(bank+0xA000,minutes),(bank+0xA800,seconds)):
+            off=offset(pc)
+            if source[off:off+len(data)]!=b'\xff'*len(data):
+                raise ValueError(f'Timer extension space is not blank at ${pc:06X}')
+            put(off,data)
     put(offset(labels['timer_font_destination'])+1,struct.pack('<H',(0x2000+FONT_FIRST_TILE*32)//2))
 
     # These native color maps belong to Mixed Match. Keep the timer's subscreen
@@ -196,14 +197,22 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
         if source[off:off+len(maps)]!=b'\xff'*len(maps):
             raise ValueError(f'Solo background space is not blank at {destination:06X}')
         put(off,maps)
-    timer_graphics,borders,color_font,color_maps,palettes,popup=build_border(
-        source,padding_maps,timer_graphics,frame,minutes,seconds)
-    for pc,data in ((0x9D9000,timer_graphics),(0x9C9400,borders),(0x9C9600,palettes),(0x9C9700,popup),(0x9E8000,color_font)):
+    color_state=([],{})
+    built={two:build_border(source,padding_maps,*timer_sets[two],two,color_state)
+           for two in (True,False)}
+    two_graphics,two_borders,_,two_maps,_,popup=built[True]
+    solo_graphics,solo_borders,color_font,solo_maps,palettes,_=built[False]
+    borders=solo_borders[:96]+two_borders[96:]
+    color_maps=solo_maps[:3]+two_maps[3:]
+    for pc,data in ((0x9D9000,two_graphics),(0x9F8000,solo_graphics),
+                    (0x9C9400,borders),(0x9C9600,palettes),(0x9C9700,popup),(0x9E8000,color_font)):
         off=offset(pc)
         if source[off:off+len(data)]!=b'\xff'*len(data):
             raise ValueError(f'Timer border space is not blank at ${pc:06X}')
         put(off,data)
-    put(offset(labels['timer_font_length'])+1,struct.pack('<H',len(timer_graphics)))
+    put(offset(labels['timer_font_length'])+1,struct.pack('<H',len(two_graphics)))
+    put(offset(labels['timer_solo_font_length'])+1,struct.pack('<H',len(solo_graphics)))
+    put(offset(labels['timer_solo_font_destination'])+1,struct.pack('<H',(0x2000+FONT_FIRST_TILE*32)//2))
     put(offset(labels['timer_color_length'])+1,struct.pack('<H',len(color_font)))
     put(offset(labels['timer_color_destination'])+1,struct.pack('<H',(0xA000+COLOR_FIRST_TILE*16)//2))
     for index,destination in enumerate((0x9CC800,0x9CD800,0x9CE800)):

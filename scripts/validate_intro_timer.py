@@ -9,9 +9,10 @@ from timer_border import BORDER_CELLS
 def expected_timer_map(rom,ram):
     left,right=(int.from_bytes(ram[a:a+2],'little') for a in (0x1ef6,0x1ef8))
     minutes,seconds=ram[0x40a],ram[0x409]
-    lf=offset(0x9c9300)+left//32;rf=offset(0x9c9300)+right//32
-    mm=offset(0x9ca000)+left+minutes*12
-    ss=offset(0x9ca800)+right+seconds*12
+    bank=0x9c0000 if ram[0x1ef0] else 0x9e0000
+    lf=offset(bank+0x9300)+left//32;rf=offset(bank+0x9300)+right//32
+    mm=offset(bank+0xa000)+left+minutes*12
+    ss=offset(bank+0xa800)+right+seconds*12
     result=bytearray(rom[lf:lf+6]+rom[rf+6:rf+12]
             +rom[mm:mm+6]+rom[ss:ss+6]+rom[mm+6:mm+12]+rom[ss+6:ss+12]
             +rom[lf+12:lf+18]+rom[rf+18:rf+24])
@@ -19,6 +20,7 @@ def expected_timer_map(rom,ram):
     key=3+p1*3+p2 if ram[0x1ef0] else p1
     base=offset(0x9c9400)+key*32
     for i,(y,x) in enumerate(BORDER_CELLS):
+        if key==1 and y in (1,2) and x==5:continue
         result[(y*6+x)*2:(y*6+x+1)*2]=rom[base+i*2:base+i*2+2]
     return bytes(result)
 

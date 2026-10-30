@@ -3,7 +3,7 @@ import struct
 
 from build_rom import OUTPUT, ROOT, SOURCE, decode_tile
 from verify_menu import Emulator
-from timer import frame_pixels, frame_colors, FONT_FIRST_TILE, GLYPH_X, font_colors
+from timer import frame_pixels, frame_colors, FONT_FIRST_TILE, glyph_positions, font_colors
 from timer_border import map_pixels, gold_frame_pens, BORDER_CELLS, ORANGE_SUBTRACT
 from timer_padding import timer_layouts
 
@@ -48,7 +48,7 @@ def verify_frame_design(source):
     from PIL import Image
     for doctor,two,name,size,origin in (
         (False,False,'timer-tetris.png',(46,31),(1,1)),
-        (True,False,'timer-drmario-1p.png',(46,31),(1,1)),
+        (True,False,'timer-drmario-1p.png',(46,31),(2,1)),
         (True,True,'timer-drmario-2p.png',(44,29),(2,2)),
     ):
         image=Image.open(ROOT/'scripts'/'assets'/name).convert('RGBA')
@@ -74,6 +74,8 @@ def check_timer(e, minutes=None, seconds=None):
     seconds=r[0x409] if seconds is None else seconds
     col=timer_column(r)
     styles=timer_styles(r)
+    two=bool(r[0x1ef0])
+    solo_doctor=not two and styles[0]
     # Reconstruct BG2 from uploaded graphics, checking source glyph pixels,
     # exact centering, opaque backing, and the two subscreen cutouts.
     pixels=[]
@@ -84,7 +86,7 @@ def check_timer(e, minutes=None, seconds=None):
             doctor=styles[(x-col)//3]
             static=(row-23,x-col) in BORDER_CELLS
             edge_attributes=(0x3000 if x-col<3 else 0x3800) if r[0x1ef0] else 0x3c00
-            attributes=(edge_attributes if static else 0x2c00) if doctor else 0x3400
+            attributes=(edge_attributes if static or solo_doctor else 0x2c00) if doctor else 0x3400
             assert entry&0x3c00==attributes, 'Wrong player/game timer style'
             glyph=decode_tile(v,entry&0x3ff,0x2000)
             if entry&0x4000:glyph=[row[::-1] for row in glyph]
@@ -108,27 +110,28 @@ def check_timer(e, minutes=None, seconds=None):
                     assert pixel==expected, 'Native timer frame art incorrect'
     for i,n in ((0,minutes//10),(1,minutes%10),(3,seconds//10),(4,seconds%10)):
         native=decode_tile(source,0x130+n,0x70000)+decode_tile(source,0x140+n,0x70000)
-        actual=[row[GLYPH_X[i]:GLYPH_X[i]+7] for row in pixels[8:24]]
-        ink,shadow,body=font_colors(styles[i//3])
+        gx=glyph_positions(styles[i//3],two)[i]
+        actual=[row[gx:gx+7] for row in pixels[8:24]]
+        ink,shadow,body=font_colors(styles[i//3],two)
         assert len({ink,shadow,body})==3, 'Timer drop shadow disappeared into face/background'
         assert actual==[[ink if p==1 else shadow if p==3 else body for p in row[:7]] for row in native], f'Timer lost native glyph/drop-shadow pixels: clock={minutes}:{seconds:02}, glyph={i}, two={r[0x1ef0]}, styles={styles}, queued={r[0x1dc0:0x1dc2].hex()}, key={r[0x1efc:0x1eff].hex()}'
     # The colon also has a two-pixel right/down cast shadow, with its pixels
     # using the appropriate player style on either side of the center seam.
     for y in range(16):
         for x in range(4):
-            ink,shadow,body=font_colors(styles[(22+x)//24])
+            ink,shadow,body=font_colors(styles[(22+x)//24],two)
             expected=ink if y in (4,5,10,11) and x<2 else shadow if y in (6,7,12,13) and x>=2 else body
-            assert pixels[y+8][22+x]==expected, 'Colon shadow/face is incorrect'
+            assert pixels[y+8][glyph_positions(styles[0],two)[2]+x]==expected, 'Colon shadow/face is incorrect'
     assert r[0x1572:0x1574]==source[0x194a4:0x194a6], 'Gold timer paper differs from native HUD paper'
     assert r[0x1574:0x1576]==source[0x19506:0x19508], 'Gold timer shadow differs from native Dr. Mario shadow'
     assert r[0x1560:0x1572]==source[0x19460:0x19472] and r[0x1576:0x1580]==source[0x19476:0x19480], 'Native gold frame palette was changed'
     assert v[0xbff0:0xc000]==bytes(16), 'BG3 transparent tile was not loaded'
     rom=OUTPUT.read_bytes()
     if r[0x1ef0]:
-        assert r[0x1582:0x1592]==rom[0xe1620:0xe1630], 'Gold left-edge palette pens were not loaded'
-        actual=b''.join(r[a:a+2] for a in (0x15c2,0x15c6,0x15c8,0x15ca,0x15cc))
-        assert actual==rom[0xe1630:0xe163a], 'Gold right-edge palette pens were not loaded'
         if any(styles):
+            assert r[0x1582:0x1592]==rom[0xe1620:0xe1630], 'Gold left-edge palette pens were not loaded'
+            actual=b''.join(r[a:a+2] for a in (0x15c2,0x15c6,0x15c8,0x15ca,0x15cc))
+            assert actual==rom[0xe1630:0xe163a], f'Gold right-edge palette pens were not loaded: {styles}, {actual.hex()}'
             assert r[0x150a:0x150c]==r[0x151e:0x1520], 'Gold background tint 15 is stale'
             assert r[0x151e:0x1520]==r[0x153e:0x1540], 'Native background tints 15/31 diverged'
             assert int.from_bytes(r[0x150c:0x150e],'little')==ORANGE_SUBTRACT, 'Gold orange-shade subtraction changed'

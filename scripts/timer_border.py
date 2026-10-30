@@ -2,7 +2,7 @@
 import struct
 
 from build_rom import decode_tile, encode_tile
-from timer import FONT_FIRST_TILE, PADDING_MAP_TILES, frame_pixels, DOCTOR_GRAY_PENS
+from timer import FONT_FIRST_TILE, PADDING_MAP_TILES, frame_pixels, DOCTOR_GRAY_PENS, SOLO_FRAME_PENS
 from timer_padding import timer_layouts
 from game_over import POPUP_PENS, build_popup
 
@@ -10,7 +10,7 @@ from game_over import POPUP_PENS, build_popup
 BORDER_CELLS = tuple((y,x) for y in range(4) for x in range(6)
                      if y in (0,3) or x in (0,5))
 COLOR_FIRST_TILE = 0x180
-GOLD_PENS = {2:1,3:2,4:3,5:4,6:5,7:6,9:7,11:10,12:9,13:13,14:8}
+GOLD_PENS = SOLO_FRAME_PENS
 GOLD_LEFT_PENS = {2:1,3:1,4:1,5:3,9:4}
 GOLD_RIGHT_PENS = {2:1,3:3,4:6,5:4,9:5}
 # Subtract from the light-gold pen to retain the original orange RGB.
@@ -39,6 +39,9 @@ def gold_palette(source, two=False):
     for (bank,native),pen in gold_background_pens(two).items():
         if two and bank==6:continue
         palette[pen]=struct.unpack_from('<H',source,0x19400+(bank*16+native)*2)[0]
+    if not two:
+        palette[14]=0
+        palette[15]=struct.unpack_from('<H',source,0x19506)[0]
     return struct.pack('<8H',*palette[1:9]) if two else struct.pack('<16H',*palette)
 
 
@@ -54,7 +57,7 @@ def map_pixels(source, entry, color=False):
     return pixels
 
 
-def build_border(source, solo_maps, graphics, frames, minutes, seconds):
+def build_border(source, solo_maps, graphics, frames, minutes, seconds, two_mode, color_state):
     used={e&1023 for base in (0xA8800,0xA9000,0xA9800,0xAA000,0xAA800)
           for e in struct.unpack_from('<1024H',source,base)}
     words=[e for data in (frames,minutes,seconds)
@@ -104,7 +107,7 @@ def build_border(source, solo_maps, graphics, frames, minutes, seconds):
         raise ValueError('Expected the native orange shading difference')
     if source[0x1941e:0x19420]!=source[0x1943e:0x19440]:
         raise ValueError('Expected matching native background tints 15/31')
-    colors=[];color_indices={}
+    colors,color_indices=color_state
 
     def color_tile(pixels,palette):
         data=encode_tile(pixels)[:16]
@@ -118,6 +121,8 @@ def build_border(source, solo_maps, graphics, frames, minutes, seconds):
     records=bytearray();color_maps=[]
     for layout,(maps,doctors,col) in enumerate(timer_layouts(source,solo_maps)):
         two=layout>=3
+        if two!=two_mode:
+            records.extend(bytes(32));color_maps.append(bytes(0x800));continue
         art=[frame_pixels(source,doctor,two) for doctor in doctors]
         color_map=bytearray(maps[1])
         for y in range(4):
@@ -172,5 +177,5 @@ def build_border(source, solo_maps, graphics, frames, minutes, seconds):
     right.extend((struct.unpack_from('<H',source,0x194a4)[0],
                   struct.unpack_from('<H',source,0x19468)[0]))
     palettes=gold_palette(source)+gold_palette(source,True)+struct.pack('<5H',*right)
-    popup=build_popup(source,metal_tile)
+    popup=build_popup(source,metal_tile) if two_mode else b''
     return bytes(graphics),bytes(records),b''.join(colors),color_maps,palettes,popup

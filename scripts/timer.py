@@ -15,8 +15,17 @@ GLYPH_X = (8,15,22,26,33)
 PADDING_MAP_TILES = {0x36E,0x36F,0x374,0x375}
 
 
-def font_colors(doctor=False):
+SOLO_FRAME_PENS = {2:1,3:2,4:3,5:4,6:5,7:6,9:7,11:10,12:9,13:13,14:8}
+
+
+def glyph_positions(doctor=False, two=True):
+    # Text placement is independent of the solo Dr. Mario frame's 1px offset.
+    return GLYPH_X
+
+
+def font_colors(doctor=False, two=True):
     # Keep the source font's separate face and offset-shadow masks.
+    if doctor and not two:return (14,15,7)
     return (8,10,9) if doctor else (2,15,3)
 
 
@@ -40,7 +49,7 @@ def frame_colors(source, doctor=False):
     return colors
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=4)
 def frame_art(doctor=False,two=False):
     """Read the supplied PNG at native size, without resampling its pixels."""
     name=f'timer-drmario-{2 if two else 1}p.png' if doctor else 'timer-tetris.png'
@@ -49,6 +58,7 @@ def frame_art(doctor=False,two=False):
     size=(44,29) if doctor and two else (46,31)
     if image.size!=size:raise ValueError(f'{name}: expected {size}, got {image.size}')
     x0,y0=(2,2) if doctor and two else (1,1)
+    if doctor and not two:x0+=1
     canvas=[[None]*48 for _ in range(32)]
     for y in range(image.height):
         for x in range(image.width):
@@ -67,7 +77,7 @@ def frame_pixels(source, doctor=False, two=False):
     except KeyError as error:raise ValueError(f'Timer PNG color ${error.args[0]:04X} has no native palette match') from error
 
 
-def build_timer(source):
+def build_timer(source, two=True):
     # Reuse unreferenced HUD-font/decorative slots and $300..$3FF. Dynamic
     # capsule/virus and Tetris-board tiles ($000..$03F/$200..) stay untouched.
     # Preserve all interleaved native graphics in the contiguous DMA span.
@@ -90,16 +100,17 @@ def build_timer(source):
     indices = {}
 
     def tile(pixels, doctor):
+        attributes=0x3C00 if doctor and not two else 0x2C00 if doctor else 0x3400
         data = encode_tile(pixels)
         if data not in indices:
             mirrored=encode_tile([row[::-1] for row in pixels])
             if mirrored in indices:
-                return (0x2C00 if doctor else 0x3400) | indices[mirrored] | 0x4000
+                return attributes | indices[mirrored] | 0x4000
             if len(tiles) == len(available):
                 raise ValueError(f'Timer exceeds {len(available)} available tiles')
             indices[data] = available[len(tiles)]
             tiles.append(data)
-        return (0x2C00 if doctor else 0x3400) | indices[data]
+        return attributes | indices[data]
 
     digits = [decode_tile(source, 0x130 + n, 0x70000)
               + decode_tile(source, 0x140 + n, 0x70000) for n in range(10)]
@@ -113,13 +124,14 @@ def build_timer(source):
 
     def panel(minutes, seconds, doctor):
         canvas = [[(9 if doctor else 3) if p is None else p for p in row]
-                  for row in frame_pixels(source,doctor)]
-        ink,shadow,body = font_colors(doctor)
+                  for row in frame_pixels(source,doctor,two)]
+        if doctor and not two:canvas=[[SOLO_FRAME_PENS[p] for p in row] for row in canvas]
+        ink,shadow,body = font_colors(doctor,two)
         glyphs = [digits[minutes // 10], digits[minutes % 10], colon,
                   digits[seconds // 10], digits[seconds % 10]]
         for i, glyph in enumerate(glyphs):
             for y, row in enumerate(glyph):
-                x=GLYPH_X[i]
+                x=glyph_positions(doctor,two)[i]
                 canvas[y + 8][x:x+len(row)] = [ink if p==1 else shadow if p==3 else body for p in row]
         return [[tile([r[x:x + 8] for r in canvas[y:y + 8]],doctor)
                  for x in range(0, 48, 8)] for y in range(0, 32, 8)]

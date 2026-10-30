@@ -689,6 +689,11 @@ timer_load:
   sep.b #$20
   lda.b #$01
   sta.w $1DC2
+  lda.w $1EF0
+  bne timer_load_two_font
+  jsl.l timer_solo_font_load
+  bra timer_load_font_done
+timer_load_two_font:
   lda.b #$9D
   pha
   pea.w $9000
@@ -697,6 +702,7 @@ timer_font_destination:
 timer_font_length:
   pea.w $0000
   jsl.l $808B0B
+timer_load_font_done:
   jsl.l timer_border_load
   ; A transparent BG3 tile for the panel's subscreen cutout. Otherwise native
   ; background subtraction tints the white digits green/pink/gold.
@@ -716,6 +722,7 @@ timer_font_length:
 timer_prepare:
   php
   rep.b #$30
+  phb
   phx
   phy
   lda.b $00
@@ -726,6 +733,19 @@ timer_prepare:
   pha
   ; All layouts use BG2 column 13. Solo's native camera shifts Tetris by
   ; 80px and Dr. Mario by 72px: panel x=184 / 176, or x=104 in two-player.
+  lda.w $1EF0
+  and.w #$00FF
+  beq timer_lookup_solo
+  sep.b #$20
+  lda.b #$9C
+  bra timer_lookup_bank
+timer_lookup_solo:
+  sep.b #$20
+  lda.b #$9E
+timer_lookup_bank:
+  pha
+  plb
+  rep.b #$20
   lda.w #$06ED
   sta.b $00
   cmp.w $1EFA
@@ -823,17 +843,17 @@ timer_seconds_valid:
   lsr A
   lsr A
   tax
-  lda.l $9C9300,X
+  lda.w $9300,X
   sta.l $7F0D00
-  lda.l $9C9302,X
+  lda.w $9302,X
   sta.l $7F0D02
-  lda.l $9C9304,X
+  lda.w $9304,X
   sta.l $7F0D04
-  lda.l $9C930C,X
+  lda.w $930C,X
   sta.l $7F0D24
-  lda.l $9C930E,X
+  lda.w $930E,X
   sta.l $7F0D26
-  lda.l $9C9310,X
+  lda.w $9310,X
   sta.l $7F0D28
   lda.w $1EF8
   lsr A
@@ -842,43 +862,43 @@ timer_seconds_valid:
   lsr A
   lsr A
   tax
-  lda.l $9C9306,X
+  lda.w $9306,X
   sta.l $7F0D06
-  lda.l $9C9308,X
+  lda.w $9308,X
   sta.l $7F0D08
-  lda.l $9C930A,X
+  lda.w $930A,X
   sta.l $7F0D0A
-  lda.l $9C9312,X
+  lda.w $9312,X
   sta.l $7F0D2A
-  lda.l $9C9314,X
+  lda.w $9314,X
   sta.l $7F0D2C
-  lda.l $9C9316,X
+  lda.w $9316,X
   sta.l $7F0D2E
   ldx.b $02
-  lda.l $9CA000,X
+  lda.w $A000,X
   sta.l $7F0D0C
-  lda.l $9CA002,X
+  lda.w $A002,X
   sta.l $7F0D0E
-  lda.l $9CA004,X
+  lda.w $A004,X
   sta.l $7F0D10
-  lda.l $9CA006,X
+  lda.w $A006,X
   sta.l $7F0D18
-  lda.l $9CA008,X
+  lda.w $A008,X
   sta.l $7F0D1A
-  lda.l $9CA00A,X
+  lda.w $A00A,X
   sta.l $7F0D1C
   ldx.b $04
-  lda.l $9CA800,X
+  lda.w $A800,X
   sta.l $7F0D12
-  lda.l $9CA802,X
+  lda.w $A802,X
   sta.l $7F0D14
-  lda.l $9CA804,X
+  lda.w $A804,X
   sta.l $7F0D16
-  lda.l $9CA806,X
+  lda.w $A806,X
   sta.l $7F0D1E
-  lda.l $9CA808,X
+  lda.w $A808,X
   sta.l $7F0D20
-  lda.l $9CA80A,X
+  lda.w $A80A,X
   sta.l $7F0D22
   jsl.l timer_gold_refresh
   jsl.l timer_popup_prepare
@@ -891,6 +911,7 @@ timer_seconds_valid:
   sta.b $00
   ply
   plx
+  plb
   plp
   rtl
 
@@ -1243,12 +1264,18 @@ timer_border_prepare:
   sta.l $7F0D0A
   lda.l $9C940C,X
   sta.l $7F0D0C
+  cpx.w #$0020
+  beq timer_border_solo_right_top
   lda.l $9C940E,X
   sta.l $7F0D16
+timer_border_solo_right_top:
   lda.l $9C9410,X
   sta.l $7F0D18
+  cpx.w #$0020
+  beq timer_border_solo_right_bottom
   lda.l $9C9412,X
   sta.l $7F0D22
+timer_border_solo_right_bottom:
   lda.l $9C9414,X
   sta.l $7F0D24
   lda.l $9C9416,X
@@ -1801,4 +1828,18 @@ solo_results_prompt_copy:
   bne solo_results_prompt_copy
   plx
   plp
+  rtl
+
+; Each player count has its own timer font/lookup set. Keep the same VRAM
+; budget while permitting a one-pixel solo clock shift across tile boundaries.
+org $9C8F00
+timer_solo_font_load:
+  lda.b #$9F
+  pha
+  pea.w $8000
+timer_solo_font_destination:
+  pea.w $0000
+timer_solo_font_length:
+  pea.w $0000
+  jsl.l $808B0B
   rtl
