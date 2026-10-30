@@ -37,7 +37,7 @@ def frame_pixels(source, doctor=False):
     body=9 if doctor else 3
     outside=8 if doctor else 3
     canvas=[[outside]*48 for _ in range(32)]
-    left,right=(0,47) if doctor else (3,44)
+    left,right=(2,45)
     for y in range(2,30):
         for x in range(left,right+1):
             depth=min(x-left,right-x,y-2,29-y)
@@ -45,12 +45,14 @@ def frame_pixels(source, doctor=False):
     if not doctor:
         # Original top corner: y=1..8. Translate the original bottom corner
         # down one pixel to y=23..30 so both rails share the gold frame's
-        # y=2..4 / 27..29 positions. Mirror only the left-hand copies.
+        # y=2..4 / 27..29 positions. Keep the native corner placement and
+        # clock centered while the gold frame has its own narrower outline.
+        # Mirror only the left-hand copies.
         for bottom,y in ((False,1),(True,23)):
             pixels=tetris_corner_pixels(source,bottom)
             for dy,row in enumerate(pixels):
-                canvas[y+dy][38:46]=[p or body for p in row]
-                canvas[y+dy][2:10]=[p or body for p in row[::-1]]
+                canvas[y+dy][39:47]=[p or body for p in row]
+                canvas[y+dy][1:9]=[p or body for p in row[::-1]]
     return canvas
 
 

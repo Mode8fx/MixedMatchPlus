@@ -189,16 +189,16 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
                 struct.pack_into('<H',bg3,index,tile3)
         padding_maps[stage]=(bytes(bg2),bytes(bg3))
         maps=bg2+bg3
-        col=14 if stage==3 else 13
+        col=13
         for row in range(23,27):
             struct.pack_into('<6H',maps,0x800+row*64+col*2,*([0x1ff]*6))
         off=offset(destination)
         if source[off:off+len(maps)]!=b'\xff'*len(maps):
             raise ValueError(f'Solo background space is not blank at {destination:06X}')
         put(off,maps)
-    timer_graphics,borders,color_font,color_maps=build_border(
+    timer_graphics,borders,color_font,color_maps,palettes=build_border(
         source,padding_maps,timer_graphics,frame,minutes,seconds)
-    for pc,data in ((0x9D9000,timer_graphics),(0x9C9400,borders),(0x9E8000,color_font)):
+    for pc,data in ((0x9D9000,timer_graphics),(0x9C9400,borders),(0x9C9600,palettes),(0x9E8000,color_font)):
         off=offset(pc)
         if source[off:off+len(data)]!=b'\xff'*len(data):
             raise ValueError(f'Timer border space is not blank at ${pc:06X}')

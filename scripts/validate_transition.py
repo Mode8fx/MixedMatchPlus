@@ -2,20 +2,20 @@
 from pathlib import Path
 from build_rom import OUTPUT, ROOT
 from verify_menu import Emulator
-from validate_timer import displayed_timer_pixel
+from validate_timer import displayed_timer_pixel, timer_column, timer_screen_x
 
 
 def timer_visible(e,picture):
     """Compare the actual displayed panel with its current VRAM/CGRAM pixels."""
     r=e.memory();v=e.memory(3)
-    col=14 if r[0x1ef3]==72 else 13
+    col=timer_column(r);left=timer_screen_x(r)
     for row in range(23,27):
         for x in range(6):
             for y in range(8):
                 for dx in range(8):
                     rgb=displayed_timer_pixel(r,v,col,x*8+dx,(row-23)*8+y,e.pixel_format)
-                    actual=picture.getpixel((184+x*8+dx,row*8+y))
-                    assert actual==rgb, f'Timer clipped/tinted during solo wipe at {(184+x*8+dx,row*8+y)}: {actual} != {rgb}'
+                    actual=picture.getpixel((left+x*8+dx,row*8+y))
+                    assert actual==rgb, f'Timer clipped/tinted during solo wipe at {(left+x*8+dx,row*8+y)}: {actual} != {rgb}'
 
 
 def check_solo_wipe(e,picture,previous=None):

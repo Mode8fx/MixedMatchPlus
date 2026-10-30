@@ -6,7 +6,7 @@ def timer_layouts(source, solo_maps):
     phases=(1,3,5)
     bg2={n:source[b:b+0x800] for n,b in ((1,0xAA000),(3,0xAA800),(5,0xA9800))}
     bg3={n:source[b:b+0x800] for n,b in ((1,0xAC000),(3,0xAC800),(5,0xAB800))}
-    layouts=[(solo_maps[n],(n==3,n==3),14 if n==3 else 13) for n in phases]
+    layouts=[(solo_maps[n],(n==3,n==3),13) for n in phases]
     for left in phases:
         for right in phases:
             maps=[]

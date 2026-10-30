@@ -724,20 +724,9 @@ timer_prepare:
   pha
   lda.b $04
   pha
-  lda.w $1EF0
-  and.w #$00FF
-  bne timer_two_position
-  ; Panel top-left: solo (184,184), two players (104,184). BG2 scroll
-  ; shifts Tetris by 80px and Dr. Mario by 72px, so solo uses columns 13/14.
+  ; All layouts use BG2 column 13. Solo's native camera shifts Tetris by
+  ; 80px and Dr. Mario by 72px: panel x=184 / 176, or x=104 in two-player.
   lda.w #$06ED
-  ldx.w $03F1
-  cpx.w #$0003
-  bne timer_position_ready
-  inc A
-  bra timer_position_ready
-timer_two_position:
-  lda.w #$06ED
-timer_position_ready:
   sta.b $00
   cmp.w $1EFA
   beq timer_position_saved
@@ -891,6 +880,7 @@ timer_seconds_valid:
   sta.l $7F0D20
   lda.l $9CA80A,X
   sta.l $7F0D22
+  jsl.l timer_gold_refresh
   jsl.l timer_padding_prepare
   pla
   sta.b $04
@@ -1283,6 +1273,138 @@ timer_color_destination:
 timer_color_length:
   pea.w $0000
   jsl.l $808B0B
+  ; Solo uses inactive P2's BG palette 7. Two-player uses only unused pens
+  ; in native BG palettes 4/6, preserving both players' piece palettes.
+  ; These combine gold rails with the native background strips.
+  ; The already requested native palette DMA uploads these under forced blank.
+  php
+  rep.b #$30
+  phx
+  lda.w $1EF0
+  and.w #$00FF
+  beq timer_gold_solo_palette
+  ldx.w #$000E
+timer_gold_two_palette:
+  lda.l $9C9620,X
+  sta.w $1582,X
+  dex
+  dex
+  bpl timer_gold_two_palette
+  lda.l $9C9630
+  sta.w $15C2
+  lda.l $9C9632
+  sta.w $15C6
+  lda.l $9C9634
+  sta.w $15C8
+  lda.l $9C9636
+  sta.w $15CA
+  ; BG3 palette 1 is unused by native art. Its first two colors mirror the
+  ; native background tints; the third retains the exact yellow gold shade
+  ; by subtracting sixteen blue levels from the light-gold face.
+  lda.w $151E
+  sta.w $150A
+  lda.w $153E
+  sta.w $150C
+  lda.w #$4000
+  sta.w $150E
+  bra timer_gold_palette_done
+timer_gold_solo_palette:
+  ldx.w #$001E
+timer_gold_solo_palette_loop:
+  lda.l $9C9600,X
+  sta.w $15E0,X
+  dex
+  dex
+  bpl timer_gold_solo_palette_loop
+timer_gold_palette_done:
+  plx
+  plp
+  rtl
+
+; Native stage loads replace palette slots. Repair only our unused pens and
+; mirror the current BG3 tints before the next DMA. Stable frames upload nothing.
+org $9C8D00
+timer_gold_refresh:
+  php
+  rep.b #$30
+  pha
+  phx
+  phy
+  lda.w $1EF0
+  and.w #$00FF
+  bne timer_gold_refresh_check_style
+  brl.w timer_gold_refresh_done
+timer_gold_refresh_check_style:
+  lda.w $1EF6
+  ora.w $1EF8
+  bne timer_gold_refresh_build
+  brl.w timer_gold_refresh_done
+timer_gold_refresh_build:
+  ldy.w #$0000
+  ldx.w #$000E
+timer_gold_refresh_left:
+  lda.l $9C9620,X
+  cmp.w $1582,X
+  beq timer_gold_refresh_left_next
+  sta.w $1582,X
+  iny
+timer_gold_refresh_left_next:
+  dex
+  dex
+  bpl timer_gold_refresh_left
+  lda.l $9C9630
+  cmp.w $15C2
+  beq timer_gold_refresh_right_1
+  sta.w $15C2
+  iny
+timer_gold_refresh_right_1:
+  lda.l $9C9632
+  cmp.w $15C6
+  beq timer_gold_refresh_right_2
+  sta.w $15C6
+  iny
+timer_gold_refresh_right_2:
+  lda.l $9C9634
+  cmp.w $15C8
+  beq timer_gold_refresh_right_3
+  sta.w $15C8
+  iny
+timer_gold_refresh_right_3:
+  lda.l $9C9636
+  cmp.w $15CA
+  beq timer_gold_refresh_palette
+  sta.w $15CA
+  iny
+timer_gold_refresh_palette:
+  lda.w $151E
+  cmp.w $150A
+  beq timer_gold_refresh_tint_1
+  sta.w $150A
+  iny
+timer_gold_refresh_tint_1:
+  lda.w $153E
+  cmp.w $150C
+  beq timer_gold_refresh_tint_2
+  sta.w $150C
+  iny
+timer_gold_refresh_tint_2:
+  lda.w #$4000
+  cmp.w $150E
+  beq timer_gold_refresh_tint_done
+  sta.w $150E
+  iny
+timer_gold_refresh_tint_done:
+  cpy.w #$0000
+  beq timer_gold_refresh_done
+  sep.b #$20
+  lda.b #$01
+  sta.w $1DC2
+  rep.b #$20
+timer_gold_refresh_done:
+  ply
+  plx
+  pla
+  plp
   rtl
 
 org $9C8000
