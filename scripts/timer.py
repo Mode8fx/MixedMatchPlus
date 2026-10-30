@@ -1,5 +1,9 @@
-"""Build matching metal timer frames and the native 8x16 status-number font."""
+"""Build the supplied PNG timer frames and native 8x16 status-number font."""
 import struct
+from functools import lru_cache
+from pathlib import Path
+
+from PIL import Image
 
 from build_rom import decode_tile, encode_tile
 
@@ -7,7 +11,7 @@ FONT_FIRST_TILE = 0x150
 STYLE_STRIDE = 0x400
 GLYPH_X = (8,15,22,26,33)
 # Alternate BG3 map rows share these otherwise unused character slots. They
-# are selected as map data only on the four scanlines outside the gold frame.
+# are selected as map data on the three scanlines outside compact gold frames.
 PADDING_MAP_TILES = {0x36E,0x36F,0x374,0x375}
 
 
@@ -16,44 +20,51 @@ def font_colors(doctor=False):
     return (8,10,9) if doctor else (2,15,3)
 
 
-def tetris_corner_pixels(source, bottom=False):
-    """The native right-hand 8x8 corner, including its original shading.
-
-    A corner crosses three source tiles. Its five-pixel connector has the
-    native three-pixel rail centered on it. No scaling or recoloring is used.
-    """
-    left=decode_tile(source,0x232,0x70000)
-    corner=decode_tile(source,0x23C if bottom else 0x236,0x70000)
-    side=decode_tile(source,0x23A if bottom else 0x238,0x70000)
-    if bottom:
-        return [[0,0]+side[y][:6] for y in (6,7)]+[
-            left[y][6:]+corner[y][:6] for y in range(6)]
-    return [left[y][6:]+corner[y][:6] for y in range(1,8)]+[[0,0]+side[0][:6]]
+def snes_color(rgb):
+    """Round artwork RGB to the SNES's five bits per channel."""
+    return sum(((c*31+127)//255)<<shift for c,shift in zip(rgb,(0,5,10)))
 
 
-def frame_pixels(source, doctor=False):
-    """Three-pixel rails, with unmodified native corners on the silver frame."""
-    bevel=(2,3,5) if doctor else (9,10,13)
-    body=9 if doctor else 3
-    outside=8 if doctor else 3
-    canvas=[[outside]*48 for _ in range(32)]
-    left,right=(2,45)
-    for y in range(2,30):
-        for x in range(left,right+1):
-            depth=min(x-left,right-x,y-2,29-y)
-            canvas[y][x]=bevel[depth] if depth<3 else body
-    if not doctor:
-        # Original top corner: y=1..8. Translate the original bottom corner
-        # down one pixel to y=23..30 so both rails share the gold frame's
-        # y=2..4 / 27..29 positions. Keep the native corner placement and
-        # clock centered while the gold frame has its own narrower outline.
-        # Mirror only the left-hand copies.
-        for bottom,y in ((False,1),(True,23)):
-            pixels=tetris_corner_pixels(source,bottom)
-            for dy,row in enumerate(pixels):
-                canvas[y+dy][39:47]=[p or body for p in row]
-                canvas[y+dy][1:9]=[p or body for p in row[::-1]]
-    return canvas
+# Abstract frame pens. Solo gold's gray trim uses these only in static border
+# cells, which get a composite palette; the live numeral cells retain palette 3.
+DOCTOR_GRAY_PENS = {11:12,12:11,13:15,14:10}
+
+
+def frame_colors(source, doctor=False):
+    base=0x19460 if doctor else 0x194a0
+    colors=dict(enumerate(struct.unpack_from('<16H',source,base)))
+    if doctor:
+        colors[9]=struct.unpack_from('<H',source,0x194a4)[0]
+        for pen,native in DOCTOR_GRAY_PENS.items():
+            colors[pen]=struct.unpack_from('<H',source,0x194a0+native*2)[0]
+    return colors
+
+
+@lru_cache(maxsize=3)
+def frame_art(doctor=False,two=False):
+    """Read the supplied PNG at native size, without resampling its pixels."""
+    name=f'timer-drmario-{2 if two else 1}p.png' if doctor else 'timer-tetris.png'
+    with Image.open(Path(__file__).parent/'assets'/name) as original:
+        image=original.convert('RGBA')
+    size=(44,29) if doctor and two else (46,31)
+    if image.size!=size:raise ValueError(f'{name}: expected {size}, got {image.size}')
+    x0,y0=(2,2) if doctor and two else (1,1)
+    canvas=[[None]*48 for _ in range(32)]
+    for y in range(image.height):
+        for x in range(image.width):
+            r,g,b,a=image.getpixel((x,y))
+            if a not in (0,255):raise ValueError(f'{name}: partial alpha is unsupported')
+            if a and (r,g,b)!=(255,0,255):
+                canvas[y+y0][x+x0]=snes_color((r,g,b))
+    return tuple(tuple(row) for row in canvas)
+
+
+def frame_pixels(source, doctor=False, two=False):
+    colors=frame_colors(source,doctor)
+    # Prefer the existing body/rail pens when duplicate native colors exist.
+    pens={colors[p]:p for p in ((3,9,10,11,12,13,15) if not doctor else (2,3,4,5,6,7,9,11,12,13,14))}
+    try:return [[None if p is None else pens[p] for p in row] for row in frame_art(doctor,two)]
+    except KeyError as error:raise ValueError(f'Timer PNG color ${error.args[0]:04X} has no native palette match') from error
 
 
 def build_timer(source):
@@ -101,7 +112,8 @@ def build_timer(source):
         colon[y][:2] = [1, 1]
 
     def panel(minutes, seconds, doctor):
-        canvas = frame_pixels(source,doctor)
+        canvas = [[(9 if doctor else 3) if p is None else p for p in row]
+                  for row in frame_pixels(source,doctor)]
         ink,shadow,body = font_colors(doctor)
         glyphs = [digits[minutes // 10], digits[minutes % 10], colon,
                   digits[seconds // 10], digits[seconds % 10]]

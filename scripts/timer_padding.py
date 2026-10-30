@@ -1,4 +1,4 @@
-"""Restore native backgrounds on the four scanlines outside the gold frame."""
+"""Restore native backgrounds above/below the compact two-player gold frame."""
 import struct
 
 
@@ -30,12 +30,12 @@ def build_padding(source, solo_maps, borders, color_maps):
             for edge,row in enumerate((23,26)):
                 words=list(struct.unpack_from('<32H',maps[layer],row*64))
                 for x in range(6):
-                    if not doctors[x//3]:
-                        if layer==0:
-                            cell=BORDER_CELLS.index((0 if edge==0 else 3,x))
-                            words[col+x]=struct.unpack_from('<H',borders,index*32+cell*2)[0]
-                        else:
-                            words[col+x]=struct.unpack_from('<H',color_maps[index],row*64+(col+x)*2)[0]
+                    if index>=3 and doctors[x//3]:continue
+                    if layer==0:
+                        cell=BORDER_CELLS.index((0 if edge==0 else 3,x))
+                        words[col+x]=struct.unpack_from('<H',borders,index*32+cell*2)[0]
+                    else:
+                        words[col+x]=struct.unpack_from('<H',color_maps[index],row*64+(col+x)*2)[0]
                 record.extend(struct.pack('<32H',*words))
         for offset,destination in zip(range(0,256,64),destinations):
             # Native VRAM queue: DMAP/BBAD, source/bank, count, VMADD, VMAIN.
@@ -44,5 +44,5 @@ def build_padding(source, solo_maps, borders, color_maps):
         data.extend(record)
     assert len(data)==0xC00 and len(descriptors)==480
     # Channel 6, mode 1: BG2SC/BG3SC. Counts include HDMA first-line timing.
-    bands=bytes.fromhex('7f 04 08 40 04 08 02 0c 44 1c 04 08 02 0c 44 11 04 08 00')
+    bands=bytes.fromhex('7f 04 08 40 04 08 02 0c 44 1d 04 08 01 0c 44 11 04 08 00')
     return bytes(data),bytes(descriptors),bands

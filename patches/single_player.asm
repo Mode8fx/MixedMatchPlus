@@ -1061,10 +1061,10 @@ solo_timer_cutout_target:
 solo_timer_cutout_done:
   rtl
 
-; Alternate maps retain native backgrounds outside the 28px-high gold frame.
+; Alternate maps retain native backgrounds outside the compact 29px gold frame.
 ; BG2 uses unused VRAM $1800..$1FFF. BG3's two live rows occupy four reserved
 ; graphics slots at $8DC0/$8E80, using map base $8800. Channel 6 selects these
-; maps on the two scanlines above/below the frame without touching scroll.
+; maps on two scanlines above and one below the frame without touching scroll.
 org $80D300
 timer_padding_display:
   lda.w $0BAF
@@ -1298,12 +1298,14 @@ timer_gold_two_palette:
   sta.w $15C8
   lda.l $9C9636
   sta.w $15CA
-  ; BG3 palette 1 is unused by native art. Its first two colors mirror the
-  ; native background tints; the third retains the exact yellow gold shade
-  ; by subtracting sixteen blue levels from the light-gold face.
+  lda.l $9C9638
+  sta.w $15CC
+  ; BG3 palette 1 is unused by native art. Its colors supply the shared
+  ; background tint (native 15/31 agree), plus orange/yellow subtraction
+  ; from one light-gold main pen, preserving the exact original RGB values.
   lda.w $151E
   sta.w $150A
-  lda.w $153E
+  lda.w #$58E0
   sta.w $150C
   lda.w #$4000
   sta.w $150E
@@ -1322,7 +1324,7 @@ timer_gold_palette_done:
   rtl
 
 ; Native stage loads replace palette slots. Repair only our unused pens and
-; mirror the current BG3 tints before the next DMA. Stable frames upload nothing.
+; mirror the current BG3 tint before the next DMA. Stable frames upload nothing.
 org $9C8D00
 timer_gold_refresh:
   php
@@ -1372,8 +1374,14 @@ timer_gold_refresh_right_2:
 timer_gold_refresh_right_3:
   lda.l $9C9636
   cmp.w $15CA
-  beq timer_gold_refresh_palette
+  beq timer_gold_refresh_right_4
   sta.w $15CA
+  iny
+timer_gold_refresh_right_4:
+  lda.l $9C9638
+  cmp.w $15CC
+  beq timer_gold_refresh_palette
+  sta.w $15CC
   iny
 timer_gold_refresh_palette:
   lda.w $151E
@@ -1382,7 +1390,7 @@ timer_gold_refresh_palette:
   sta.w $150A
   iny
 timer_gold_refresh_tint_1:
-  lda.w $153E
+  lda.w #$58E0
   cmp.w $150C
   beq timer_gold_refresh_tint_2
   sta.w $150C
