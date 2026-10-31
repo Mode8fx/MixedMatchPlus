@@ -910,6 +910,7 @@ timer_seconds_valid:
   sta.l $7F0D22
   jsl.l timer_gold_refresh
   jsl.l timer_popup_prepare
+  jsl.l timer_stage_clear_prepare
   jsl.l timer_padding_prepare
   pla
   sta.b $04
@@ -1571,18 +1572,22 @@ draw_normal_count_loop:
   and.b #$E3
   ora.b $00
   sta.l $7F0189,X
+  ; Clear native initialization's old header colors beneath the longer label.
+  lda.l $7F0149,X
+  and.b #$E3
+  sta.l $7F0149,X
   inx
   inx
-  cpx.w #$0012
+  cpx.w #$001A
   bne draw_normal_count_loop
   lda.l $7F0149
   and.b #$E3
   ora.b $00
   sta.l $7F0149
-  lda.l $7F0159
+  lda.l $7F0161
   and.b #$E3
   ora.b $00
-  sta.l $7F0159
+  sta.l $7F0161
   jsl.l draw_normal_frames
   plx
   plp
@@ -1814,11 +1819,11 @@ solo_results_prompt:
   phx
   ldx.w #$0000
 solo_results_prompt_copy:
-  lda.l $9C9080,X
-  sta.l $7F0614,X
+  lda.l $9C9030,X
+  sta.l $7F060E,X
   inx
   inx
-  cpx.w #$0016
+  cpx.w #$0024
   bne solo_results_prompt_copy
   plx
   plp
@@ -1837,3 +1842,123 @@ timer_solo_font_length:
   pea.w $0000
   jsl.l $808B0B
   rtl
+
+; Palette 6's animated ink shares the right gold timer's light-gold pen.
+; Clone only the lettering into spare palette-0 pens, leaving native frame
+; tiles and both players' HUD faces/shadows intact. Game Over uses palette 1.
+org $80D400
+timer_stage_clear_prepare:
+  php
+  rep.b #$30
+  pha
+  phx
+  phy
+  lda.w $1EF0
+  and.w #$00FF
+  beq timer_stage_clear_done
+  lda.w $03F1
+  and.w #$00FF
+  cmp.w #$0003
+  bne timer_stage_clear_second
+  lda.w $0305
+  and.w #$00FF
+  cmp.w #$000B
+  bne timer_stage_clear_second
+  ldy.w #$02C8
+  jsr.w timer_stage_clear_map
+timer_stage_clear_second:
+  lda.w $08F1
+  and.w #$00FF
+  cmp.w #$0003
+  bne timer_stage_clear_done
+  lda.w $0805
+  and.w #$00FF
+  cmp.w #$000B
+  bne timer_stage_clear_done
+  ldy.w #$02E8
+  jsr.w timer_stage_clear_map
+timer_stage_clear_done:
+  ply
+  plx
+  pla
+  plp
+  rtl
+
+timer_stage_clear_map:
+  lda.w #$0009
+  sta.b $02
+timer_stage_clear_row:
+  lda.w #$0008
+  sta.b $00
+timer_stage_clear_cell:
+  tyx
+  lda.l $7F0000,X
+  and.w #$E000
+  sta.b $04
+  lda.l $7F0000,X
+  and.w #$1FFF
+  pha
+  and.w #$03FF
+  sec
+  sbc.w #$00D0
+  cmp.w #$001A
+  bcs timer_stage_clear_skip
+  asl A
+  asl A
+  tax
+  pla
+  cmp.l $9C9780,X
+  bne timer_stage_clear_next
+  lda.l $9C9782,X
+  ora.b $04
+  tyx
+  sta.l $7F0000,X
+timer_stage_clear_next:
+  iny
+  iny
+  dec.b $00
+  bne timer_stage_clear_cell
+  tya
+  clc
+  adc.w #$0030
+  tay
+  dec.b $02
+  bne timer_stage_clear_row
+  ; The native animation still advances its own eight-color table/index.
+  ; Copy that color every frame: the timer restores palette-6 pen 1 above.
+  lda.w $0C0A
+  and.w #$0007
+  asl A
+  tax
+  lda.w $16B0,X
+  cmp.w $1508
+  beq timer_stage_clear_static
+  sta.w $1508
+  sep.b #$20
+  lda.b #$01
+  sta.w $1DC2
+  rep.b #$20
+timer_stage_clear_static:
+  ldx.w #$0000
+timer_stage_clear_palette:
+  lda.l $9C97E8,X
+  tay
+  lda.l $9C97EA,X
+  cmp.w $1500,Y
+  beq timer_stage_clear_palette_next
+  sta.w $1500,Y
+  sep.b #$20
+  lda.b #$01
+  sta.w $1DC2
+  rep.b #$20
+timer_stage_clear_palette_next:
+  inx
+  inx
+  inx
+  inx
+  cpx.w #$0008
+  bcc timer_stage_clear_palette
+  rts
+timer_stage_clear_skip:
+  pla
+  bra timer_stage_clear_next

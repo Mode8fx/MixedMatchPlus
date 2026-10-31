@@ -109,7 +109,8 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
 
     put(offset(0x9C9000),text_tiles('MODE SELECT 1PLAYER GAME',0x2000))
     put(offset(0x9C9060),text_tiles('BGM1BGM2BGM3OFF ',0x2000))
-    put(offset(0x9C9080),text_tiles('PRESS START',0x2000))
+    # The longer results prompt fits the gap before the custom music strings.
+    put(offset(0x9C9030),text_tiles('PRESS START BUTTON',0x2000))
     result=bytearray(source[0xB3000:0xB3780])
     # One score column, no opponent labels, judgement, or winner comparison.
     for row in range(4,27):

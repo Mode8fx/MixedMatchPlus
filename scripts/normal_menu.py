@@ -15,11 +15,11 @@ def build_normal_menu(source: bytes) -> tuple[bytes, bytes, bytes]:
     new=rows.copy()
     for row in range(4,24):new[row]=rows[7]
 
-    # PLAYERS stays in its original position, with the original border colors.
+    # Keep the header's position and native border colors; widen for MODE SELECT.
     for row,data in (
-        (4,struct.pack('<9H',0x2024,*([0x2025]*7),0x6024)),
-        (5,struct.pack('<H',0x2026)+text_tiles('PLAYERS',0x2000)+struct.pack('<H',0x6026)),
-        (6,struct.pack('<9H',0xa024,*([0xa025]*7),0xe024)),
+        (4,struct.pack('<13H',0x2024,*([0x2025]*11),0x6024)),
+        (5,struct.pack('<H',0x2026)+text_tiles('MODE SELECT',0x2000)+struct.pack('<H',0x6026)),
+        (6,struct.pack('<13H',0xa024,*([0xa025]*11),0xe024)),
     ):
         line=bytearray(new[row]);line[8:8+len(data)]=data;new[row]=bytes(line)
 

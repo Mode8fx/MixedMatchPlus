@@ -42,7 +42,7 @@ def verify_results(core):
                                 for row in (6,7,9,10,12,13,18,19):
                                     assert struct.unpack_from('<4H',v,row*64+24)==(0x2000,)*4, 'Results retained uncentered score fragments'
                                 if r[0x305]<7:
-                                    assert r[0x10614:0x1062a]==b'\x00\x20'*11, 'PRESS START appeared before results finished'
+                                    assert r[0x1060e:0x10632]==b'\x00\x20'*18, 'PRESS START BUTTON appeared before results finished'
                         if r[0x305]==7 and r[0x306]==1:
                             assert len(events)==4 and visible==(True,)*4
                             assert int.from_bytes(r[0x412:0x416],'little')==(15912 if played else 17), 'Incorrect staged score total'
@@ -57,8 +57,8 @@ def verify_results(core):
                         native_events,native_ready,native_values=reference[custom,played]
                         assert events==native_events and frame==native_ready, 'Solo reveal timing differs from native two-player results'
                         assert [[n&1023 for n in row] for row in values]==[[n&1023 for n in row] for row in native_values], 'Solo score/NO-PLAY digits differ from native results'
-                        prompt=e.memory(3)[24*64+20:24*64+42]
-                        assert prompt==OUTPUT.read_bytes()[0xe1080:0xe1096], 'Missing final PRESS START prompt'
+                        prompt=e.memory(3)[24*64+14:24*64+50]
+                        assert prompt==OUTPUT.read_bytes()[0xe1030:0xe1054], 'Missing centered PRESS START BUTTON prompt'
                     press(e,3);until(e,lambda r:r[0xbaf]==0x33 and r[0x32]==15)
                 finally:e.close()
     print('PASS solo results: four reveals and input timing match native two-player results, complete border throughout, centered placeholders/scores, NO-PLAY, totals and title return, both routes')

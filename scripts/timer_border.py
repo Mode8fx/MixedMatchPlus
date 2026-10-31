@@ -5,6 +5,7 @@ from build_rom import decode_tile, encode_tile
 from timer import FONT_FIRST_TILE, PADDING_MAP_TILES, frame_pixels, DOCTOR_GRAY_PENS, SOLO_FRAME_PENS
 from timer_padding import timer_layouts
 from game_over import POPUP_PENS, build_popup
+from stage_clear import CLEAR_PENS, build_stage_clear
 from timer_shadow import shadow_mask, shadow_tint_cell, SHADOW_CELLS
 
 # Only these cells contain frame pixels; the eight numeral cells stay dynamic.
@@ -90,15 +91,15 @@ def build_border(source, solo_maps, graphics, frames, minutes, seconds, two_mode
     for base in (0xA8800,0xA9000,0xA9800,0xAA000,0xAA800):
         for e in set(struct.unpack_from('<1024H',source,base)):
             palette=(e>>10)&7
-            forbidden=({5,6,7} if palette==0 else set(POPUP_PENS) if palette==1 else set(range(1,9)) if palette==4
+            forbidden=({5,6,7,*CLEAR_PENS} if palette==0 else set(POPUP_PENS) if palette==1 else set(range(1,9)) if palette==4
                        else set(GOLD_RIGHT_PENS.values()) if palette==6 else set())
             if forbidden and any(p in forbidden for row in decode_tile(source,e&1023,0x70000) for p in row):
-                raise ValueError('Native graphics use a reserved gold-edge palette pen')
+                raise ValueError('Native graphics use a reserved timer/popup palette pen')
     for base in (0xAB800,0xAC000,0xAC800):
         for e in set(struct.unpack_from('<1024H',source,base)):
-            if any(((e>>10)&7)*4+p in (5,6,7,*(16+n for n in POPUP_PENS))
+            if any(((e>>10)&7)*4+p in (5,6,7,*CLEAR_PENS,*(16+n for n in POPUP_PENS))
                    for row in map_pixels(source,e,True) for p in row if p):
-                raise ValueError('Native BG3 uses the gold shading palette')
+                raise ValueError('Native BG3 uses a reserved timer/popup palette pen')
     light,yellow=(struct.unpack_from('<H',source,0x19460+p*2)[0] for p in (2,3))
     if light-yellow!=0x4000:
         raise ValueError('Expected the native gold shades to differ by sixteen blue levels')
@@ -190,5 +191,6 @@ def build_border(source, solo_maps, graphics, frames, minutes, seconds, two_mode
     right.extend((struct.unpack_from('<H',source,0x194a4)[0],
                   struct.unpack_from('<H',source,0x19468)[0]))
     palettes=gold_palette(source)+gold_palette(source,True)+struct.pack('<5H',*right)
-    popup=build_popup(source,metal_tile) if two_mode else b''
+    popup=(build_popup(source,metal_tile).ljust(0x80,b'\xff')+
+           build_stage_clear(source,metal_tile)) if two_mode else b''
     return bytes(graphics),bytes(records),b''.join(colors),color_maps,palettes,popup,shadow_maps

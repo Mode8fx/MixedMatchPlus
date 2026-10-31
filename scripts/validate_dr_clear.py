@@ -3,6 +3,13 @@ from build_rom import OUTPUT, ROOT
 from verify_menu import Emulator, DEFAULT_CORE
 
 
+def prepare_last_virus(e, player=0):
+    base=player*0x500
+    for row in range(1,17):e.write_memory(base+0x100+row*16+1,bytes(8))
+    e.write_memory(base+0x201,bytes((0x83,3,3,3)))
+    e.write_memory(base+0x3e7,b'\x01');e.write_memory(base+0x367,bytes((0,0,1)))
+
+
 def verify_dr_clear(core, rom=OUTPUT):
     from validate_single_player import menu,press,active
     for custom in (False,True):
@@ -14,9 +21,7 @@ def verify_dr_clear(core, rom=OUTPUT):
             # no Dr. Mario state, camera, PPU or DMA registers are forced.
             e.write_memory(0x305,b'\x0b\x00');e.write_memory(0x316,b'\x01')
             active(e,3);e.run(4)
-            for row in range(1,17):e.write_memory(0x100+row*16+1,bytes(8))
-            e.write_memory(0x201,bytes((0x83,3,3,3)))
-            e.write_memory(0x3e7,b'\x01');e.write_memory(0x367,bytes((0,0,1)))
+            prepare_last_virus(e)
             picture=e.screenshot(ROOT/'custom'/'research'/'dr-clear-start.png')
             regions=((0,0,64,224),(232,0,256,224))
             expected=[picture.crop(box).tobytes() for box in regions]

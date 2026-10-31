@@ -164,7 +164,7 @@ def normal_menu_spacing(e, source):
     p1=sprite_bounds(sprites[:8]);assert p1==(91,99)
     p2=sprite_bounds(sprites[8:16]) if r[0x1ef0] else None
     if p2:assert p2==(115,123)
-    rows=[bounds(32,32,104,54),bounds(56,54,152,68),bounds(32,68,112,90),p1,
+    rows=[bounds(32,32,136,54),bounds(56,54,152,68),bounds(32,68,112,90),p1,
           bounds(56,102,200,114),p2,bounds(32,126,120,146),bounds(56,148,200,160),
           bounds(32,161,144,181),bounds(56,183,224,196)]
     assert rows[:3]==[(36,51),(58,64),(71,86)]
@@ -368,6 +368,8 @@ def verify(core):
     verify_solo_transition(core)
     from validate_dr_clear import verify_dr_clear
     verify_dr_clear(core)
+    from validate_stage_clear import verify_stage_clear
+    verify_stage_clear(core)
     from validate_game_over import verify_game_over
     verify_game_over(core)
     for custom in (False,True):
