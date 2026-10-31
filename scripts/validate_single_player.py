@@ -165,7 +165,21 @@ def custom_music_layout(e,source):
     assert entries[2]==entries[29]==0x2c0b, 'Music row damaged the menu frame'
 
 
+def custom_count_layout(e):
+    ram=e.memory();vram=e.memory(3)
+    words=struct.unpack_from('<32H',vram,4*64)
+    label=f'MODE SELECT {ram[0x1ef0]+1}PLAYER GAME'
+    expected=[0 if c==' ' else 0x100+(int(c) if c.isdigit() else ord(c)-55) for c in label]
+    assert [w&0x3ff for w in words[4:28]]==expected, 'Custom player row text/placement is wrong'
+    assert words[3:4]+words[28:29]==(0x2000,)*2, 'Old player-row text remains'
+    assert 4*8==256-28*8, 'Custom player row is not centered'
+    for col in range(4,28):
+        color=0x0400 if col==16 and ram[0x1ef2]==0 else 0
+        assert words[col]&0x1c00==color, 'Only the focused player-count digit may be yellow'
+
+
 def custom_menu_layout(e, source, two_players=False):
+    custom_count_layout(e)
     vram=e.memory(3)
     # The original frame's lower corners and bottom must be back at rows 22/23.
     assert vram[22*64:24*64]==source[0xae800+22*64:0xae800+24*64]
@@ -182,6 +196,7 @@ def custom_menu_layout(e, source, two_players=False):
             if index==6:press(e,5)  # Music is between the final level and time.
             assert e.memory()[0x1ef2]==(8 if index==6 else index+1)
         e.run(2)  # Native drawing and NMI upload follow input on later frames.
+        custom_count_layout(e)
         start=row*64+col*2
         width=6 if row==13 else 4
         before_value=e.memory()[address];before_tiles=e.memory(3)[start:start+width]
@@ -219,6 +234,7 @@ def custom_menu_layout(e, source, two_players=False):
         assert e.memory()[0x1ea9]==0
         for _ in range(7):press(e,4)
         assert e.memory()[0x1ef2]==0
+        e.run(3);custom_count_layout(e)
 
 
 def background_capture(e, stage, path):

@@ -1596,27 +1596,22 @@ draw_custom_count:
   phy
   ldx.w #$0000
 draw_custom_count_loop:
-  lda.l $9C9040,X
-  sta.l $7F0112,X
+  lda.l $9C9000,X
+  sta.l $7F0108,X
   inx
   inx
-  cpx.w #$001A
+  cpx.w #$0030
   bne draw_custom_count_loop
   sep.b #$20
   lda.w $1EF0
   inc A
-  sta.l $7F0112
+  sta.l $7F0120
   lda.w $1EF2
   bne custom_count_draw_done
-  ldx.w #$0000
-custom_count_highlight:
-  lda.l $7F0113,X
+  ; Only the count digit changes color; all fixed text stays white.
+  lda.l $7F0121
   ora.b #$04
-  sta.l $7F0113,X
-  inx
-  inx
-  cpx.w #$001A
-  bne custom_count_highlight
+  sta.l $7F0121
 custom_count_draw_done:
   rep.b #$20
   lda.w #$2102

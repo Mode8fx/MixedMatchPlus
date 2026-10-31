@@ -107,7 +107,7 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     values=struct.unpack_from('<13H',source,off)
     put(off,struct.pack('<13H',*(custom_rows[v//64]*64+v%64 for v in values)))
 
-    put(offset(0x9C9040),text('1 PLAYER GAME'))
+    put(offset(0x9C9000),text('MODE SELECT 1PLAYER GAME'))
     put(offset(0x9C9060),text('BGM1BGM2BGM3OFF '))
     put(offset(0x9C9080),text('PRESS START'))
     result=bytearray(source[0xB3000:0xB3780])
