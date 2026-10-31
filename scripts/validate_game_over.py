@@ -126,10 +126,12 @@ def verify_game_over(core):
         for players in ((0,),(1,),(0,1)):
             original=capture_popups(core,SOURCE,custom,players)
             patched=capture_popups(core,OUTPUT,custom,players)
-            assert patched==original, f'Dr. Mario popup differs from native RGB pixels: custom={custom}, players={players}'
+            # RAM enters the hold state one image before its final map upload;
+            # that first image can still show independently chosen capsule colors.
+            assert all(patched[p][1:]==original[p][1:] for p in players), f'Dr. Mario popup differs from native RGB pixels: custom={custom}, players={players}'
             if players==(0,):
                 solo=capture_popups(core,OUTPUT,custom,players,False)
-                assert solo==original, 'Centered solo Dr. Mario popup differs from native pixels'
+                assert solo[0][1:]==original[0][1:], 'Centered solo Dr. Mario popup differs from native pixels'
                 patched_a=capture_popups(core,OUTPUT,custom,players,opponent_stage=5)
                 # Native Type A replaces palette-6 black with orange, tinting
                 # the ORIGINAL popup lettering too. Retain the canonical black
@@ -137,7 +139,7 @@ def verify_game_over(core):
                 # The first hold-state image still contains the preceding map
                 # upload; the independently running boards can differ there.
                 assert patched_a[0][1:]==original[0][1:], 'Dr. Mario popup differs alongside Tetris Type A'
-    print('PASS native Dr. Mario Game Over popup: every rendered hold frame matches original pixels/colors for P1, P2, both defeated, solo, both menu routes; live HUD numeral faces/shadows and timers stay correct through defeat and restart')
+    print('PASS native Dr. Mario Game Over popup: fully rendered hold frames match original pixels/colors for P1, P2, both defeated, solo, both menu routes; live HUD numeral faces/shadows and timers stay correct through defeat and restart')
 
 
 if __name__=='__main__':

@@ -760,6 +760,7 @@ timer_position_saved:
   sbc.w #$0400
   asl A
   tax
+timer_foreground_rows:
   ldy.w #$0004
 timer_clear_foreground_row:
   lda.w #$0000
@@ -1163,26 +1164,31 @@ timer_padding_key_ready:
   bne timer_padding_changed
   rtl
 timer_padding_changed:
+  ; Nine ten-byte descriptors per layout: four alternate rows, four right
+  ; BG3 shadow cells and one seven-cell bottom row. Offset = key * 90.
+  sta.b $02
+  asl A
+  asl A
+  asl A
+  clc
+  adc.b $02
   sta.b $02
   asl A
   asl A
   clc
   adc.b $02
   asl A
-  asl A
-  asl A
   tax
   lda.w $1EF4
   and.w #$00FF
   beq timer_padding_initial_load
-  ; Four 64-byte transfers only when either player's stage changes.
   ldy.w $1DC0
-  cpy.w #$1BA0
+  cpy.w #$1B6E
   bcs timer_padding_prepare_done
-  lda.w #$0014
+  lda.w #$002D
   sta.b $04
 timer_padding_queue_word:
-  lda.l $9CFC00,X
+  lda.l $9EB800,X
   sta.w $0028,Y
   inx
   inx
@@ -1196,47 +1202,33 @@ timer_padding_queue_word:
 timer_padding_prepare_done:
   rtl
 timer_padding_initial_load:
-; Initial copies run under the same forced blank as the native map loads.
   lda.b $00
   sta.w $1EFC
+  ldy.w #$0009
+timer_padding_initial_row:
+  phx
+  phy
   sep.b #$20
-  lda.b #$9C
+  lda.l $9EB804,X
   pha
   rep.b #$20
-  lda.l $9CFC02,X
+  lda.l $9EB802,X
   pha
-  pea.w $0EE0
-  pea.w $0040
-  sep.b #$20
-  jsl.l $808B0B
-  lda.b #$9C
+  lda.l $9EB807,X
   pha
-  rep.b #$20
-  lda.l $9CFC0C,X
+  lda.l $9EB805,X
   pha
-  pea.w $0F40
-  pea.w $0040
-  sep.b #$20
-  jsl.l $808B0B
-  lda.b #$9C
-  pha
-  rep.b #$20
-  lda.l $9CFC16,X
-  pha
-  pea.w $46E0
-  pea.w $0040
-  sep.b #$20
-  jsl.l $808B0B
-  lda.b #$9C
-  pha
-  rep.b #$20
-  lda.l $9CFC20,X
-  pha
-  pea.w $4740
-  pea.w $0040
   sep.b #$20
   jsl.l $808B0B
   rep.b #$20
+  ply
+  plx
+  txa
+  clc
+  adc.w #$000A
+  tax
+  dey
+  bne timer_padding_initial_row
   rtl
 
 ; Replace only the 16 static frame cells with the current layout's background

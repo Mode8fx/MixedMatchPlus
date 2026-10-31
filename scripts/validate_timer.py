@@ -6,6 +6,7 @@ from verify_menu import Emulator
 from timer import frame_pixels, frame_colors, FONT_FIRST_TILE, glyph_positions, font_colors
 from timer_border import map_pixels, gold_frame_pens, BORDER_CELLS, ORANGE_SUBTRACT
 from timer_padding import timer_layouts
+from timer_shadow import shadow_mask, native_solo_maps, SHADOW_CELLS, FRAME_SHADOW_ENABLED
 
 
 def timer_column(ram):
@@ -42,6 +43,27 @@ def displayed_timer_pixel(r,v,col,x,y,pixel_format=2):
     return red*255//31,green*255//31,blue*255//31
 
 
+def expected_background_pixel(source,r,maps,col,x,y,shadow,pixel_format,native_shadows):
+    """Resolve the original BG2 texture against native BG3 shadow pens."""
+    values=[]
+    doctor=r[0x8f1 if r[0x1ef0] and col+x//8>=16 else 0x3f1]==3
+    cell_cast=any(shadow[y//8*8+dy][x//8*8+dx] for dy in range(8) for dx in range(8))
+    for layer in (0,1):
+        entry=struct.unpack_from('<H',maps[layer],(23+y//8)*64+(col+x//8)*2)[0]
+        p=map_pixels(source,entry,bool(layer))[y%8][x%8]
+        palette=((entry>>10)&7)*(4 if layer else 16)
+        index=palette+p if p else 0
+        if layer:
+            if shadow[y][x]:
+                phase=r[0x8f1 if r[0x1ef0] and col+x//8>=16 else 0x3f1]
+                index=native_shadows[phase] if doctor or palette!=28 else palette+native_shadows[phase]%4
+            elif doctor and cell_cast and index==9:index=13
+        values.append(struct.unpack_from('<H',r,0x1500+index*2)[0] if index or not layer else 0)
+    rgb=[max(0,((values[0]>>shift)&31)-((values[1]>>shift)&31)) for shift in (0,5,10)]
+    return ((rgb[0]*255//31,(rgb[1]*2+(rgb[1]>>4))*255//63,rgb[2]*255//31)
+            if pixel_format==2 else tuple(c*255//31 for c in rgb))
+
+
 def verify_frame_design(source):
     # Read the supplied files independently of the renderer. Assert every
     # quantized PNG pixel, explicit transparency and native-size placement.
@@ -70,6 +92,11 @@ def verify_frame_design(source):
 
 def check_timer(e, minutes=None, seconds=None):
     r=e.memory();v=e.memory(3);source=SOURCE.read_bytes()
+    # Read original SCORE/board shadow art, independently of the compositor.
+    native_shadows={}
+    for phase,base,off in ((1,0xac000,26*64+26),(3,0xac800,5*64+2),(5,0xab800,26*64+26)):
+        entry=struct.unpack_from('<H',source,base+off)[0]
+        native_shadows[phase]=((entry>>10)&7)*4+map_pixels(source,entry,True)[0][0]
     minutes=r[0x40a] if minutes is None else minutes
     seconds=r[0x409] if seconds is None else seconds
     col=timer_column(r)
@@ -107,7 +134,7 @@ def check_timer(e, minutes=None, seconds=None):
                     expected=native_frames[x//24][y][x]
                     if doctor:
                         expected=gold_frame_pens(bool(r[0x1ef0]),x>=24)[expected]
-                    assert pixel==expected, 'Native timer frame art incorrect'
+                    assert pixel==expected, f'Native timer frame art incorrect at {(x,y)}: {pixel} != {expected}, style={styles}'
     for i,n in ((0,minutes//10),(1,minutes%10),(3,seconds//10),(4,seconds%10)):
         native=decode_tile(source,0x130+n,0x70000)+decode_tile(source,0x140+n,0x70000)
         gx=glyph_positions(styles[i//3],two)[i]
@@ -158,34 +185,47 @@ def check_timer(e, minutes=None, seconds=None):
                 assert picture.getpixel((expected_x+x,184+y))==native_rgb, 'Timer artwork differs from the reference PNG color'
     # Independently reconstruct the unmodified native background at every
     # removed exterior pixel, including the pixels around the native silver corners.
-    solo_maps={n:(OUTPUT.read_bytes()[base:base+0x800],b'')
-               for n,base in ((1,0xe4000),(3,0xe5000),(5,0xe6000))}
-    for n,base in ((1,0xac000),(3,0xac800),(5,0xab800)):
-        bg3=bytearray(source[base:base+0x800])
-        for yy in range(32):
-            for xx in range(16,32):
-                ce=struct.unpack_from('<H',source,base+(8+yy%4)*64+(xx%2)*2)[0] if n==3 else struct.unpack_from('<H',source,base+10*64)[0]
-                struct.pack_into('<H',bg3,yy*64+xx*2,ce)
-        solo_maps[n]=(solo_maps[n][0],bytes(bg3))
-    maps,_,_=timer_layouts(source,solo_maps)[r[0x1efc]]
+    maps,_,_=timer_layouts(source,native_solo_maps(source))[r[0x1efc]]
+    shadow=shadow_mask(source,styles,two,maps,col)
     for y in range(32):
         for x in range(48):
             outside=native_frames[x//24][y][x] is None
             if not outside:continue
-            values=[]
-            for layer in (0,1):
-                entry=struct.unpack_from('<H',maps[layer],(23+y//8)*64+(col+x//8)*2)[0]
-                p=map_pixels(source,entry,bool(layer))[y%8][x%8]
-                palette=((entry>>10)&7)*(4 if layer else 16)
-                values.append(struct.unpack_from('<H',r,0x1500+(palette+p if p else 0)*2)[0] if p or not layer else 0)
-            rgb=[max(0,((values[0]>>shift)&31)-((values[1]>>shift)&31)) for shift in (0,5,10)]
-            expected=(rgb[0]*255//31,(rgb[1]*2+(rgb[1]>>4))*255//63,rgb[2]*255//31) if e.pixel_format==2 else tuple(c*255//31 for c in rgb)
+            expected=expected_background_pixel(source,r,maps,col,x,y,shadow,e.pixel_format,native_shadows)
             assert picture.getpixel((expected_x+x,184+y))==expected, f'Cleared silver padding does not match native background at {(x,y)}'
     if any(styles):
         index=r[0x1efc]
         for i,destination in enumerate((0x1dc0,0x1e80,0x8dc0,0x8e80)):
             start=0xe7000+index*256+i*64
             assert v[destination:destination+64]==OUTPUT.read_bytes()[start:start+64], 'Wrong restored background rows'
+    for y,x in SHADOW_CELLS:
+        native_entry=struct.unpack_from('<H',maps[0],(23+y)*64+(col+x)*2)[0]
+        entry=struct.unpack_from('<H',v,0x800+(23+y)*64+(col+x)*2)[0]
+        assert entry==native_entry, 'Timer shadow changed the native BG2 background texture/palette'
+        for dy in range(8):
+            for dx in range(8):
+                yy,xx=y*8+dy,x*8+dx
+                if not FRAME_SHADOW_ENABLED:
+                    expected=expected_background_pixel(source,r,maps,col,xx,yy,shadow,e.pixel_format,native_shadows)
+                    assert displayed_timer_pixel(r,v,col,xx,yy,e.pixel_format)==expected, f'Disabled frame shadow still alters the background at {(xx,yy)}'
+                if shadow[yy][xx]:
+                    color=displayed_timer_pixel(r,v,col,xx,yy,e.pixel_format)
+                    expected=expected_background_pixel(source,r,maps,col,xx,yy,shadow,e.pixel_format,native_shadows)
+                    assert color==expected, f'Timer shadow lost the native texture/shading at {(xx,yy)}, key={r[0x1efc]}, styles={styles}, color={color}, expected={expected}'
+                    # Native foreground objects and falling-piece sprites
+                    # remain in front of the cast on the neighboring field.
+                    fg=struct.unpack_from('<H',v,(23+y)*64+(col+x)*2)[0]
+                    glyph=decode_tile(v,fg&1023,0x2000)
+                    fg_pixel=glyph[7-dy if fg&0x8000 else dy][7-dx if fg&0x4000 else dx]
+                    sx,sy=expected_x+xx,184+yy
+                    end=int.from_bytes(r[0x1dc5:0x1dc7],'little')
+                    sprite=any(r[i]<=sx<r[i]+16 and r[i+1]-7<=sy<r[i+1]+16
+                               for i in range(0x1900,end,4))
+                    if not fg_pixel and not sprite:
+                        assert picture.getpixel((sx,sy))==expected, f'Timer shadow clipped at {(sx,sy)}'
+    if FRAME_SHADOW_ENABLED:
+        for x in range(col,col+6):
+            assert struct.unpack_from('<H',v,27*64+x*2)[0]==0, 'Divider crosses the bottom timer shadow'
     return picture.crop((expected_x,184,expected_x+48,216))
 
 
@@ -267,3 +307,23 @@ def verify_timer(core):
                 until(e,lambda r:r[0xbaf]==0x31)
             finally:e.close()
     print('PASS rendered timer: native 8x16 font and exact PNG frame pixels/colors, all four player-stage combinations, both solo styles, minute/second digits, both routes, rollover, pause, transitions, expiry')
+
+
+def verify_additional_shadow_layouts(core):
+    from validate_single_player import menu,press,active,until
+    # verify_timer already covers the other five two-player combinations and
+    # all solo phases. Complete the nine independently progressing pairings.
+    for left,right in ((1,3),(1,5),(3,5),(5,1)):
+        e=Emulator(core,OUTPUT)
+        try:
+            menu(e);press(e,7);press(e,3);active(e,1)
+            for player,target in ((0,left),(1,right)):
+                for stage in (3,5):
+                    if stage>target:break
+                    off=player*0x500
+                    e.write_memory(off+0x305,b'\x0b\x00');e.write_memory(off+0x316,b'\x01')
+                    until(e,lambda r:r[off+0x3f1]==stage and r[off+0x305]==5 and r[off+0x306]==1)
+            e.run(4);check_timer(e)
+            e.screenshot(ROOT/'custom'/'validation'/f'timer-shadow-{left}-{right}.png')
+        finally:e.close()
+    print('PASS remaining mixed timer shadows: every one of the nine independent two-player phase combinations covered')

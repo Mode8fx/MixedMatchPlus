@@ -30,7 +30,8 @@ if cfg.timer_dma_start then
     local x=emu.getState()['cpu.x']
     local function ram(off) return emu.read(x+off,emu.memType.snesWorkRam) end
     local source=ram(0x2A)+ram(0x2B)*256
-    paddingPending=ram(0x2C)==0x9C and source>=0xF000 and source<0xFC00 and ram(0x2D)==64 and ram(0x2E)==0
+    paddingPending=(ram(0x2C)==0x9C and source>=0xF000 and source<0xFC00 and ram(0x2D)==64 and ram(0x2E)==0)
+      or (ram(0x2C)==0x9E and source>=0xB000 and source<0xB108 and (ram(0x2D)==2 or ram(0x2D)==14) and ram(0x2E)==0)
   end,emu.callbackType.exec,0x808AF2,0x808AF2)
   emu.addMemoryCallback(function()
     if not paddingPending then return end

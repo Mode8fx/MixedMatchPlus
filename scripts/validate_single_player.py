@@ -263,7 +263,7 @@ def background_capture(e, stage, path):
     for layer,base in ((0x800,native_bg2),(0x1000,native_bg3)):
         for row in range(32):
             for x in range(16):
-                if 23<=row<27 and col<=x<col+6:continue
+                if 23<=row<28 and col<=x<col+7:continue
                 offset=row*64+x*2
                 assert vram[layer+offset:layer+offset+2]==source[base+offset:base+offset+2], f'Solo phase {stage} changed native background at layer {layer:x}, row {row}, column {x}'
     for tile in (0x236,0x238,0x23a,0x23c,0x23e):
@@ -307,6 +307,8 @@ def verify(core):
     verify_custom_repeat(core)
     from validate_timer import verify_timer
     verify_timer(core)
+    from validate_timer import verify_additional_shadow_layouts
+    verify_additional_shadow_layouts(core)
     from validate_intro_timer import verify_intro_timer
     verify_intro_timer(core)
     from validate_results import verify_results

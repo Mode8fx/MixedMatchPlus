@@ -9,6 +9,7 @@ from custom_menu import build_music_row
 from timer import build_timer, FONT_FIRST_TILE
 from timer_padding import build_padding
 from timer_border import build_border, COLOR_FIRST_TILE
+from timer_shadow import SHADOW_CELLS, FRAME_SHADOW_ENABLED
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -33,6 +34,9 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
         if source[off:off+len(data)]!=b'\xff'*len(data):
             raise ValueError(f'Extension space is not blank at {pc:06X}')
         put(off,data)
+
+    put(offset(labels['timer_foreground_rows'])+1,
+        struct.pack('<H',5 if FRAME_SHADOW_ENABLED else 4))
 
     hook(0x8AE474,'normal_init',5,0x22)
     hook(0x8ADF76,'custom_init',5,0x22)
@@ -200,10 +204,11 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     color_state=([],{})
     built={two:build_border(source,padding_maps,*timer_sets[two],two,color_state)
            for two in (True,False)}
-    two_graphics,two_borders,_,two_maps,_,popup=built[True]
-    solo_graphics,solo_borders,color_font,solo_maps,palettes,_=built[False]
+    two_graphics,two_borders,_,two_maps,_,popup,two_shadow=built[True]
+    solo_graphics,solo_borders,color_font,solo_maps,palettes,_,solo_shadow=built[False]
     borders=solo_borders[:96]+two_borders[96:]
     color_maps=solo_maps[:3]+two_maps[3:]
+    shadow_maps=solo_shadow[:3]+two_shadow[3:]
     for pc,data in ((0x9D9000,two_graphics),(0x9F8000,solo_graphics),
                     (0x9C9400,borders),(0x9C9600,palettes),(0x9C9700,popup),(0x9E8000,color_font)):
         off=offset(pc)
@@ -221,7 +226,11 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
         for row in range(23,27):
             off=row*64+26
             put(base+off,color_maps[index][off:off+12])
-    for pc,data in zip((0x9CF000,0x9CFC00,0x9CFE00),build_padding(source,padding_maps,borders,color_maps)):
+    for index,base in ((3,0xAC000),(7,0xAC800),(11,0xAB800)):
+        for y,x in SHADOW_CELLS:
+            off=(23+y)*64+(13+x)*2
+            put(base+off,shadow_maps[index][off:off+2])
+    for pc,data in zip((0x9CF000,0x9EB800,0x9CFE00,0x9EB000),build_padding(source,padding_maps,borders,color_maps,shadow_maps)):
         off=offset(pc)
         if source[off:off+len(data)]!=b'\xff'*len(data):
             raise ValueError(f'Timer padding space is not blank at ${pc:06X}')

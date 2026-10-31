@@ -5,6 +5,7 @@ from build_rom import decode_tile, encode_tile
 from timer import FONT_FIRST_TILE, PADDING_MAP_TILES, frame_pixels, DOCTOR_GRAY_PENS, SOLO_FRAME_PENS
 from timer_padding import timer_layouts
 from game_over import POPUP_PENS, build_popup
+from timer_shadow import shadow_mask, shadow_tint_cell, SHADOW_CELLS
 
 # Only these cells contain frame pixels; the eight numeral cells stay dynamic.
 BORDER_CELLS = tuple((y,x) for y in range(4) for x in range(6)
@@ -118,13 +119,24 @@ def build_border(source, solo_maps, graphics, frames, minutes, seconds, two_mode
             color_indices[data]=n;colors.append(data)
         return (palette&0x3c00)|color_indices[data]
 
-    records=bytearray();color_maps=[]
+    records=bytearray();color_maps=[];shadow_maps=[]
     for layout,(maps,doctors,col) in enumerate(timer_layouts(source,solo_maps)):
         two=layout>=3
         if two!=two_mode:
-            records.extend(bytes(32));color_maps.append(bytes(0x800));continue
+            records.extend(bytes(32));color_maps.append(bytes(0x800))
+            shadow_maps.append(bytes(0x800));continue
         art=[frame_pixels(source,doctor,two) for doctor in doctors]
+        shadow=shadow_mask(source,doctors,two,maps,col)
+        shadow_map=bytearray(maps[1])
+        # Also retain shadow-only versions of the compact gold bottom cells:
+        # the alternate map exposes their last scanline below the frame.
+        for y,x in (*SHADOW_CELLS,*((3,x) for x in range(6))):
+            tint,attributes=shadow_tint_cell(source,maps,shadow,doctors,two,col,y,x)
+            struct.pack_into('<H',shadow_map,(23+y)*64+(col+x)*2,color_tile(tint,attributes))
         color_map=bytearray(maps[1])
+        for y,x in SHADOW_CELLS:
+            off=(23+y)*64+(col+x)*2
+            color_map[off:off+2]=shadow_map[off:off+2]
         for y in range(4):
             struct.pack_into('<6H',color_map,(23+y)*64+col*2,*([0x1ff]*6))
         for y,x in BORDER_CELLS:
@@ -134,7 +146,7 @@ def build_border(source, solo_maps, graphics, frames, minutes, seconds, two_mode
                 raise ValueError('Silver background must share the native metal palette')
             background=map_pixels(source,bg_entry)
             ce=struct.unpack_from('<H',maps[1],(23+y)*64+(col+x)*2)[0]
-            tint=map_pixels(source,ce,True)
+            tint,tint_attributes=shadow_tint_cell(source,maps,shadow,doctors,two,col,y,x)
             pixels=[];masked=[]
             frame=art[x//3]
             background_pens=gold_background_pens(two)
@@ -151,31 +163,33 @@ def build_border(source, solo_maps, graphics, frames, minutes, seconds, two_mode
                     if doctor and two and yy in (0,1,31):pixel_frame=9
                     outside=pixel_frame is None
                     if outside:
-                        pair=((bg_entry>>10)&7,background[dy][dx])
+                        background_pixel=background[dy][dx]
+                        pair=((bg_entry>>10)&7,background_pixel)
                         if doctor:
                             if pair not in background_pens:
                                 raise ValueError(f'Gold-edge background exceeds its reserved palette: {pair}')
                             pixel=background_pens[pair]
-                        else:pixel=background[dy][dx]
+                        else:pixel=background_pixel
                     else:pixel=frame_pens[pixel_frame] if doctor else pixel_frame
                     pixels[-1].append(pixel)
                     if shade_gold:
                         if outside:
                             p=tint[dy][dx]
-                            tint_index=((ce>>10)&7)*4+p if p else 0
+                            tint_index=((tint_attributes>>10)&7)*4+p if p else 0
                             if tint_index not in (0,15,31):raise ValueError(f'Unexpected P1 gold-edge background tint {tint_index} at {layout,y,x,dy,dx}')
                             masked[-1].append(1 if tint_index else 0)
                         else:masked[-1].append({3:3,4:2}.get(pixel_frame,0))
                     else:masked[-1].append(tint[dy][dx] if outside else 0)
             attributes=(0x3000 if x<3 else 0x3800) if two else 0x3c00
             entry=metal_tile(pixels,attributes if doctor else 0x3400)
-            tint_palette=(ce&0x2000)|0x400 if shade_gold else ce
+            tint_palette=(ce&0x2000)|0x400 if shade_gold else tint_attributes
             struct.pack_into('<H',color_map,(23+y)*64+(col+x)*2,color_tile(masked,tint_palette))
             records.extend(struct.pack('<H',entry))
         color_maps.append(bytes(color_map))
+        shadow_maps.append(bytes(shadow_map))
     right=[struct.unpack_from('<H',source,0x19460+n*2)[0] for n in (2,3,5)]
     right.extend((struct.unpack_from('<H',source,0x194a4)[0],
                   struct.unpack_from('<H',source,0x19468)[0]))
     palettes=gold_palette(source)+gold_palette(source,True)+struct.pack('<5H',*right)
     popup=build_popup(source,metal_tile) if two_mode else b''
-    return bytes(graphics),bytes(records),b''.join(colors),color_maps,palettes,popup
+    return bytes(graphics),bytes(records),b''.join(colors),color_maps,palettes,popup,shadow_maps
