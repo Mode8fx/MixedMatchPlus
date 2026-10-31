@@ -75,6 +75,44 @@ def verify_navigation_sound(core):
     print('PASS P1 up/down SFX matches Mixed Match title in both menus and player counts; native P2 sound intact')
 
 
+def verify_pause_sound(core):
+    # The native audio handler at $808E89 rejects effect $07/$87 unless $0C79
+    # is set. Check both authorization and dispatch ($0C65), not just queuing.
+    for custom in (False,True):
+        for two in (False,True):
+            e=Emulator(core,OUTPUT)
+            try:
+                menu(e,custom)
+                if two:press(e,7)
+                press(e,3);active(e,1)
+                for stage in (1,3,5):
+                    if stage!=1:
+                        for base in ((0,0x500) if two else (0,)):
+                            e.write_memory(base+0x305,b'\x0b\x00')
+                            e.write_memory(base+0x316,b'\x01')
+                        active(e,stage)
+                    if two:
+                        until(e,lambda r:r[0x8f1]==stage and r[0x805]==5 and r[0x806]==1)
+                    for port in ((0,1) if two else (0,)):
+                        for paused in (True,False):
+                            e.run(40)
+                            assert e.memory()[0xc79]==0
+                            e.run(1,() if port else (3,),(3,) if port else ())
+                            r=e.memory()
+                            context=f'{custom=}, {two=}, {stage=}, {port=}, {paused=}'
+                            assert r[0x304]==(0x40 if paused else 0), context
+                            assert 7 in r[0xc60:0xc64], f'Pause SFX not queued: {context}'
+                            assert r[0xc79]==1, f'Pause SFX rejected by native audio gate: {context}'
+                            clock=r[0x408:0x40b]
+                            e.run(8)
+                            r=e.memory()
+                            assert r[0xc79]==0 and r[0xc65]&0x7f==7, f'Pause SFX not dispatched: {context}'
+                            assert (r[0x408:0x40b]==clock)==paused, context
+                            if not two:assert not any(r[0x600:0xa00]), 'Pause activated P2'
+            finally:e.close()
+    print('PASS native pause/resume SFX dispatch in all three stages, both menus/player counts/controllers; solo P2 stays inactive')
+
+
 def normal_menu_spacing(e, source):
     vram=e.memory(3)
     rom=OUTPUT.read_bytes()
@@ -313,6 +351,7 @@ def verify(core):
     assert complement^checksum==0xffff and sum(patched)&0xffff==checksum
     DEST.mkdir(parents=True,exist_ok=True)
     verify_navigation_sound(core)
+    verify_pause_sound(core)
     from validate_custom_repeat import verify_custom_repeat
     verify_custom_repeat(core)
     from validate_timer import verify_timer

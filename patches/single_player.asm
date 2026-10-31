@@ -311,6 +311,9 @@ solo_pause_ready:
   bne solo_pause_done
   lda.b #$40
   sta.w $0304
+  ; Native audio rejects pause effect $07 unless this one-shot gate is set.
+  lda.b #$01
+  sta.w $0C79
   lda.b #$08
   sta.b $00
   jsr.w $D25C
@@ -321,6 +324,8 @@ solo_pause_ready:
   bra solo_pause_done
 solo_unpause:
   stz.w $0304
+  lda.b #$01
+  sta.w $0C79
   lda.b #$09
   sta.b $00
   jsr.w $D25C
