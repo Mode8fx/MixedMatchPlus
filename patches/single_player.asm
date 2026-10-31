@@ -588,7 +588,7 @@ solo_display:
   ldx.w $03F1
   cpx.w #$0003
   bne solo_shift_ready
-  lda.b #$48
+  lda.b #$40
 solo_shift_ready:
   sta.w $1EF3
   rep.b #$20
@@ -596,6 +596,8 @@ solo_shift_ready:
   eor.w #$FFFF
   inc A
   sta.b $4F
+  ; Keep the native decorative tiles and their color masks at the same
+  ; offset as the foreground. Their paired artwork must not be rephased.
   sta.b $53
   sta.b $57
   sep.b #$20
@@ -731,8 +733,8 @@ timer_prepare:
   pha
   lda.b $04
   pha
-  ; All layouts use BG2 column 13. Solo's native camera shifts Tetris by
-  ; 80px and Dr. Mario by 72px: panel x=184 / 176, or x=104 in two-player.
+  ; All layouts use native column 13. Solo Dr. Mario's aligned cameras use
+  ; +64px: panel x=168. Tetris stays x=184, two-player stays x=104.
   lda.w $1EF0
   and.w #$00FF
   beq timer_lookup_solo
@@ -999,7 +1001,7 @@ solo_shift_sprites:
   ldx.w $03F1
   cpx.w #$0003
   bne solo_sprite_shift_ready
-  lda.b #$48
+  lda.b #$40
 solo_sprite_shift_ready:
   sta.w $1EF3
   ldx.w #$1900
@@ -1057,7 +1059,7 @@ solo_timer_cutout_build:
   adc.w #$0400
   ldx.w $03F1
   cpx.w #$0003
-  bne solo_timer_cutout_target
+  beq solo_timer_cutout_target
   clc
   adc.w #$0005
 solo_timer_cutout_target:

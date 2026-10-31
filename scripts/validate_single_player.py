@@ -237,10 +237,41 @@ def custom_menu_layout(e, source, two_players=False):
         e.run(3);custom_count_layout(e)
 
 
+def check_dr_exposed_background(e, picture):
+    """Check the extended background against the original paired mosaic.
+
+    This uses native repeating texture/color cells, not the generated maps,
+    so a transparent old HUD tint cannot silently turn this strip gray.
+    The foreground window ends at x=191; these pixels are all background.
+    Aligned 64px cameras place this strip in even background column 16.
+    """
+    from timer_border import map_pixels
+    source=SOURCE.read_bytes();ram=e.memory()
+    for row in (*range(1,8),*range(11,15)):
+        e2=struct.unpack_from('<H',source,0xaa800+(8+row%2)*64)[0]
+        e3=struct.unpack_from('<H',source,0xac800+(8+row%4)*64)[0]
+        main=map_pixels(source,e2);sub=map_pixels(source,e3,True)
+        for y in range(8):
+            for x in range(8):
+                p,q=main[y][x],sub[y][x]
+                a=struct.unpack_from('<H',ram,0x1500+(((e2>>10)&7)*16+p)*2)[0]
+                b=struct.unpack_from('<H',ram,0x1500+(((e3>>10)&7)*4+q)*2)[0] if q else 0
+                r,g,blue=(max(0,((a>>s)&31)-((b>>s)&31)) for s in (0,5,10))
+                expected=(r*255//31,(g*2+(g>>4))*255//63,blue*255//31) if e.pixel_format==2 else tuple(v*255//31 for v in (r,g,blue))
+                assert picture.getpixel((192+x,row*8+y))==expected, f'Extended Dr. Mario background differs from native mosaic at {(192+x,row*8+y)}'
+
+
 def background_capture(e, stage, path):
     # Verify that both full decorative maps reached VRAM, including their side
     # extensions, rather than just changing window masks around the old maps.
     start={1:0xe4000,3:0xe5000,5:0xe6000}[stage]
+    ram=e.memory()
+    foreground_shift=64 if stage==3 else 80
+    background_shift=foreground_shift
+    assert ram[0x1ef3]==foreground_shift, 'Wrong solo sprite/window displacement'
+    assert int.from_bytes(ram[0x4f:0x51],'little')==(-foreground_shift)&0xffff
+    for off in (0x53,0x57):
+        assert int.from_bytes(ram[off:off+2],'little')==(-background_shift)&0xffff, 'Solo background camera moved'
     # The timer locally replaces BG2 and its BG3 color layer at the bottom.
     expected=bytearray(OUTPUT.read_bytes()[start:start+0x1000])
     actual=bytearray(e.memory(3)[0x800:0x1800])
@@ -261,11 +292,12 @@ def background_capture(e, stage, path):
     native_bg2={1:0xaa000,3:0xaa800,5:0xa9800}[stage]
     native_bg3={1:0xac000,3:0xac800,5:0xab800}[stage]
     for layer,base in ((0x800,native_bg2),(0x1000,native_bg3)):
+        reference=source[base:base+0x800]
         for row in range(32):
             for x in range(16):
                 if 23<=row<28 and col<=x<col+7:continue
                 offset=row*64+x*2
-                assert vram[layer+offset:layer+offset+2]==source[base+offset:base+offset+2], f'Solo phase {stage} changed native background at layer {layer:x}, row {row}, column {x}'
+                assert vram[layer+offset:layer+offset+2]==reference[offset:offset+2], f'Solo phase {stage} changed native background at layer {layer:x}, row {row}, column {x}'
     for tile in (0x236,0x238,0x23a,0x23c,0x23e):
         original=decode_tile(source,tile,0x70000)
         cleaned=decode_tile(vram,tile,0x2000)
@@ -289,6 +321,10 @@ def background_capture(e, stage, path):
                 edge=line[:2] if entry&0x4000 else line[6:]
                 assert edge==[0,0], f'Foreground remained at divider row {row}'
     picture=e.screenshot(path)
+    if stage==3:
+        from validate_solo_art import check_dr_frame_edges
+        check_dr_exposed_background(e,picture)
+        check_dr_frame_edges(e,picture)
     for bounds in ((0,0,64,224),(224,0,256,224)):
         side=picture.crop(bounds)
         lit=sum(pixel!=(0,0,0) for pixel in side.getdata())
@@ -306,6 +342,8 @@ def verify(core):
     from validate_custom_repeat import verify_custom_repeat
     verify_custom_repeat(core)
     from validate_timer import verify_timer
+    from validate_solo_art import verify_native_dr_reference
+    verify_native_dr_reference(core)
     verify_timer(core)
     from validate_timer import verify_additional_shadow_layouts
     verify_additional_shadow_layouts(core)

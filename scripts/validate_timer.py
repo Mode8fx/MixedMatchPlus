@@ -14,7 +14,7 @@ def timer_column(ram):
 
 
 def timer_screen_x(ram):
-    return 104 if ram[0x1ef0] else (176 if ram[0x3f1]==3 else 184)
+    return 104 if ram[0x1ef0] else (168 if ram[0x3f1]==3 else 184)
 
 
 def timer_styles(ram):
@@ -166,9 +166,14 @@ def check_timer(e, minutes=None, seconds=None):
     else:
         assert r[0x15e0:0x1600]==rom[0xe1600:0xe1620], 'Solo gold-edge palette was not loaded'
     expected_x=timer_screen_x(r)
-    shift=0 if r[0x1ef0] else (72 if r[0x3f1]==3 else 80)
+    shift=0 if r[0x1ef0] else (64 if r[0x3f1]==3 else 80)
     assert col*8+shift==expected_x
     picture=e.screenshot(ROOT/'custom'/'research'/'timer-check.png')
+    if solo_doctor:
+        from validate_single_player import check_dr_exposed_background
+        from validate_solo_art import check_dr_frame_edges
+        check_dr_exposed_background(e,picture)
+        check_dr_frame_edges(e,picture)
     # Verify every actual screen pixel against the native frame palette, so
     # checkerboard/subscreen color subtraction cannot damage either half.
     assert bool(r[0x1efe])==any(styles), 'Background-band HDMA does not follow frame styles'

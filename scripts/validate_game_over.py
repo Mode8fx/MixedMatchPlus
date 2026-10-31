@@ -98,7 +98,7 @@ def capture_popups(core, rom, custom, players, two=True, opponent_stage=1):
                 picture=e.screenshot(ROOT/'custom'/'research'/'game-over-check.png')
                 check_status_numbers(e,picture,baseline,glyphs,two)
                 for p in visible:
-                    left=32+128*p if two else 104
+                    left=32+128*p if two else 96
                     pixels=picture.crop((left,96,left+64,144)).tobytes()
                     pictures[p].append(bytes(c if opaque[i//3] else 0 for i,c in enumerate(pixels)))
                     if patched and len(pictures[p])==30:

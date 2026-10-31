@@ -193,7 +193,7 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
                 struct.pack_into('<H',bg2,index,tile2)
                 struct.pack_into('<H',bg3,index,tile3)
         padding_maps[stage]=(bytes(bg2),bytes(bg3))
-        maps=bg2+bg3
+        maps=bytearray(bg2+bg3)
         col=13
         for row in range(23,27):
             struct.pack_into('<6H',maps,0x800+row*64+col*2,*([0x1ff]*6))
