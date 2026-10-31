@@ -8,6 +8,7 @@ from PIL import Image
 from build_rom import decode_tile, encode_tile
 
 FONT_FIRST_TILE = 0x150
+TIMER_COLUMN = 13
 STYLE_STRIDE = 0x400
 GLYPH_X = (8,15,22,26,33)
 # Alternate BG3 map rows share these otherwise unused character slots. They
@@ -16,11 +17,6 @@ PADDING_MAP_TILES = {0x36E,0x36F,0x374,0x375}
 
 
 SOLO_FRAME_PENS = {2:1,3:2,4:3,5:4,6:5,7:6,9:7,11:10,12:9,13:13,14:8}
-
-
-def glyph_positions(doctor=False, two=True):
-    # Text placement is independent of the solo Dr. Mario frame's 1px offset.
-    return GLYPH_X
 
 
 def font_colors(doctor=False, two=True):
@@ -131,7 +127,7 @@ def build_timer(source, two=True):
                   digits[seconds // 10], digits[seconds % 10]]
         for i, glyph in enumerate(glyphs):
             for y, row in enumerate(glyph):
-                x=glyph_positions(doctor,two)[i]
+                x=GLYPH_X[i]
                 canvas[y + 8][x:x+len(row)] = [ink if p==1 else shadow if p==3 else body for p in row]
         return [[tile([r[x:x + 8] for r in canvas[y:y + 8]],doctor)
                  for x in range(0, 48, 8)] for y in range(0, 32, 8)]

@@ -1,4 +1,4 @@
-"""Build MixedMatchPlus from the untouched USA ROM (Python 3, no dependencies)."""
+"""Build MixedMatchPlus from the untouched USA ROM (Python 3 and Pillow)."""
 
 from hashlib import sha256
 from pathlib import Path
@@ -14,10 +14,11 @@ PREVIEW_TILES = (0x14C, 0x14D, 0x14E, 0x15E, 0x15F, 0x16F)
 PREVIEW_MAP_OFFSET = 0xBDE8C
 
 
-def text_tiles(text: str) -> bytes:
-    """Encode this screen's 16-bit BG entries: A=$010A, space=$0000."""
+def text_tiles(text: str, attributes: int = 0) -> bytes:
+    """Encode menu-font BG entries, with optional palette/priority bits."""
     return b"".join(
-        struct.pack("<H", 0 if char == " " else 0x100 + ord(char) - 55)
+        struct.pack("<H", attributes | (0 if char == " " else
+                    0x100 + (int(char) if char.isdigit() else ord(char) - 55)))
         for char in text
     )
 
@@ -64,11 +65,11 @@ def patch_preview(rom: bytearray, source: bytes) -> None:
     expected = struct.pack("<6H", 0x94C, 0x94D, 0x94E, 0, 0, 0)
     if source[PREVIEW_MAP_OFFSET:PREVIEW_MAP_OFFSET + 12] != expected:
         raise ValueError("Unexpected original game-select preview tilemap")
+    entries = struct.unpack_from("<1024H", source, 0xBD800)
     for tile in PREVIEW_TILES[3:]:
         offset = PREVIEW_GFX_BASE + tile * 32
         if any(source[offset:offset + 32]):
             raise ValueError(f"Preview tile {tile:#x} is not blank")
-        entries = struct.unpack_from("<1024H", source, 0xBD800)
         if any(entry & 0x3FF == tile for entry in entries):
             raise ValueError(f"Preview tile {tile:#x} is already referenced")
     for index, tile in enumerate(PREVIEW_TILES):

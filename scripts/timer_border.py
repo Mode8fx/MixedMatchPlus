@@ -11,7 +11,6 @@ from timer_shadow import shadow_mask, shadow_tint_cell, SHADOW_CELLS
 BORDER_CELLS = tuple((y,x) for y in range(4) for x in range(6)
                      if y in (0,3) or x in (0,5))
 COLOR_FIRST_TILE = 0x180
-GOLD_PENS = SOLO_FRAME_PENS
 GOLD_LEFT_PENS = {2:1,3:1,4:1,5:3,9:4}
 GOLD_RIGHT_PENS = {2:1,3:3,4:6,5:4,9:5}
 # Subtract from the light-gold pen to retain the original orange RGB.
@@ -19,7 +18,7 @@ ORANGE_SUBTRACT = 0x58E0
 
 
 def gold_frame_pens(two=False,right=False):
-    return (GOLD_RIGHT_PENS if right else GOLD_LEFT_PENS) if two else GOLD_PENS
+    return (GOLD_RIGHT_PENS if right else GOLD_LEFT_PENS) if two else SOLO_FRAME_PENS
 
 
 def gold_background_pens(two=False):
@@ -31,7 +30,7 @@ def gold_background_pens(two=False):
 def gold_palette(source, two=False):
     """Composite colors; the native popup is relocated to its own spare pens."""
     palette=[0]*16
-    frame_pens=GOLD_LEFT_PENS if two else GOLD_PENS
+    frame_pens=GOLD_LEFT_PENS if two else SOLO_FRAME_PENS
     for native,pen in frame_pens.items():
         if two and native in (3,4):continue
         off=(0x194a0+DOCTOR_GRAY_PENS[native]*2 if native in DOCTOR_GRAY_PENS

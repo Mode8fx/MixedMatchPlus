@@ -8,22 +8,25 @@ local timerDmaCounts = {}
 local paddingDmaCounts = {}
 local introFrames = 0
 local introLag = 0
+local function recordDma(kind,counts)
+  local s=emu.getState()
+  local line=s['ppu.scanline']
+  local blank=s['ppu.forcedBlank']
+  local first=s['ppu.overscanMode'] and 240 or 225
+  if not blank and (line<first or line>261) then
+    log:write('FAIL '..kind..' DMA outside vblank: frame '..frame..' line '..line..'\n');log:flush()
+    emu.stop(1)
+  end
+  local key=blank and 'forced blank' or tostring(line)
+  counts[key]=(counts[key] or 0)+1
+end
 if cfg.timer_dma_start then
   local pending = false
   emu.addMemoryCallback(function() pending = true end,emu.callbackType.exec,cfg.timer_dma_start,cfg.timer_dma_start)
   emu.addMemoryCallback(function()
     if not pending then return end
     pending = false
-    local s=emu.getState()
-    local line=s['ppu.scanline']
-    local blank=s['ppu.forcedBlank']
-    local first=s['ppu.overscanMode'] and 240 or 225
-    if not blank and (line<first or line>261) then
-      log:write('FAIL timer DMA outside vblank: frame '..frame..' line '..line..'\n');log:flush()
-      emu.stop(1)
-    end
-    local key=blank and 'forced blank' or tostring(line)
-    timerDmaCounts[key]=(timerDmaCounts[key] or 0)+1
+    recordDma('timer',timerDmaCounts)
   end,emu.callbackType.exec,cfg.timer_dma_end,cfg.timer_dma_end)
   local paddingPending = false
   emu.addMemoryCallback(function()
@@ -36,16 +39,7 @@ if cfg.timer_dma_start then
   emu.addMemoryCallback(function()
     if not paddingPending then return end
     paddingPending=false
-    local s=emu.getState()
-    local line=s['ppu.scanline']
-    local blank=s['ppu.forcedBlank']
-    local first=s['ppu.overscanMode'] and 240 or 225
-    if not blank and (line<first or line>261) then
-      log:write('FAIL padding DMA outside vblank: frame '..frame..' line '..line..'\n');log:flush()
-      emu.stop(1)
-    end
-    local key=blank and 'forced blank' or tostring(line)
-    paddingDmaCounts[key]=(paddingDmaCounts[key] or 0)+1
+    recordDma('padding',paddingDmaCounts)
   end,emu.callbackType.exec,0x808AF5,0x808AF5)
 end
 local function dump(name, mem, size)

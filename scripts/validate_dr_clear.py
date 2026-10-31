@@ -1,8 +1,6 @@
 """Clear a real last virus and verify solo backgrounds throughout victory."""
-from pathlib import Path
-
 from build_rom import OUTPUT, ROOT
-from verify_menu import Emulator
+from verify_menu import Emulator, DEFAULT_CORE
 
 
 def verify_dr_clear(core, rom=OUTPUT):
@@ -62,4 +60,4 @@ def verify_dr_clear(core, rom=OUTPUT):
 
 
 if __name__=='__main__':
-    verify_dr_clear(Path('C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll'))
+    verify_dr_clear(DEFAULT_CORE)

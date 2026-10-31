@@ -3,14 +3,11 @@ import struct
 
 from build_rom import OUTPUT, ROOT, SOURCE, decode_tile
 from verify_menu import Emulator
-from timer import frame_pixels, frame_colors, FONT_FIRST_TILE, glyph_positions, font_colors
+from timer import frame_pixels, frame_colors, FONT_FIRST_TILE, GLYPH_X, TIMER_COLUMN, font_colors
 from timer_border import map_pixels, gold_frame_pens, BORDER_CELLS, ORANGE_SUBTRACT
 from timer_padding import timer_layouts
-from timer_shadow import shadow_mask, native_solo_maps, SHADOW_CELLS, FRAME_SHADOW_ENABLED
-
-
-def timer_column(ram):
-    return 13
+from timer_shadow import shadow_mask, SHADOW_CELLS, FRAME_SHADOW_ENABLED
+from background import build_solo_backgrounds
 
 
 def timer_screen_x(ram):
@@ -99,7 +96,7 @@ def check_timer(e, minutes=None, seconds=None):
         native_shadows[phase]=((entry>>10)&7)*4+map_pixels(source,entry,True)[0][0]
     minutes=r[0x40a] if minutes is None else minutes
     seconds=r[0x409] if seconds is None else seconds
-    col=timer_column(r)
+    col=TIMER_COLUMN
     styles=timer_styles(r)
     two=bool(r[0x1ef0])
     solo_doctor=not two and styles[0]
@@ -137,7 +134,7 @@ def check_timer(e, minutes=None, seconds=None):
                     assert pixel==expected, f'Native timer frame art incorrect at {(x,y)}: {pixel} != {expected}, style={styles}'
     for i,n in ((0,minutes//10),(1,minutes%10),(3,seconds//10),(4,seconds%10)):
         native=decode_tile(source,0x130+n,0x70000)+decode_tile(source,0x140+n,0x70000)
-        gx=glyph_positions(styles[i//3],two)[i]
+        gx=GLYPH_X[i]
         actual=[row[gx:gx+7] for row in pixels[8:24]]
         ink,shadow,body=font_colors(styles[i//3],two)
         assert len({ink,shadow,body})==3, 'Timer drop shadow disappeared into face/background'
@@ -148,7 +145,7 @@ def check_timer(e, minutes=None, seconds=None):
         for x in range(4):
             ink,shadow,body=font_colors(styles[(22+x)//24],two)
             expected=ink if y in (4,5,10,11) and x<2 else shadow if y in (6,7,12,13) and x>=2 else body
-            assert pixels[y+8][glyph_positions(styles[0],two)[2]+x]==expected, 'Colon shadow/face is incorrect'
+            assert pixels[y+8][GLYPH_X[2]+x]==expected, 'Colon shadow/face is incorrect'
     assert r[0x1572:0x1574]==source[0x194a4:0x194a6], 'Gold timer paper differs from native HUD paper'
     assert r[0x1574:0x1576]==source[0x19506:0x19508], 'Gold timer shadow differs from native Dr. Mario shadow'
     assert r[0x1560:0x1572]==source[0x19460:0x19472] and r[0x1576:0x1580]==source[0x19476:0x19480], 'Native gold frame palette was changed'
@@ -170,9 +167,7 @@ def check_timer(e, minutes=None, seconds=None):
     assert col*8+shift==expected_x
     picture=e.screenshot(ROOT/'custom'/'research'/'timer-check.png')
     if solo_doctor:
-        from validate_single_player import check_dr_exposed_background
         from validate_solo_art import check_dr_frame_edges
-        check_dr_exposed_background(e,picture)
         check_dr_frame_edges(e,picture)
     # Verify every actual screen pixel against the native frame palette, so
     # checkerboard/subscreen color subtraction cannot damage either half.
@@ -188,9 +183,9 @@ def check_timer(e, minutes=None, seconds=None):
                 red,green,blue=((word>>shift)&31 for shift in (0,5,10))
                 native_rgb=(red*255//31,(green*2+(green>>4))*255//63,blue*255//31) if e.pixel_format==2 else (red*255//31,green*255//31,blue*255//31)
                 assert picture.getpixel((expected_x+x,184+y))==native_rgb, 'Timer artwork differs from the reference PNG color'
-    # Independently reconstruct the unmodified native background at every
-    # removed exterior pixel, including the pixels around the native silver corners.
-    maps,_,_=timer_layouts(source,native_solo_maps(source))[r[0x1efc]]
+    # Check the unmodified background around every native silver corner.
+    # Original-ROM scene comparisons separately validate native artwork.
+    maps,_,_=timer_layouts(source,build_solo_backgrounds(source))[r[0x1efc]]
     shadow=shadow_mask(source,styles,two,maps,col)
     for y in range(32):
         for x in range(48):
@@ -202,7 +197,7 @@ def check_timer(e, minutes=None, seconds=None):
         index=r[0x1efc]
         for i,destination in enumerate((0x1dc0,0x1e80,0x8dc0,0x8e80)):
             start=0xe7000+index*256+i*64
-            assert v[destination:destination+64]==OUTPUT.read_bytes()[start:start+64], 'Wrong restored background rows'
+            assert v[destination:destination+64]==rom[start:start+64], 'Wrong restored background rows'
     for y,x in SHADOW_CELLS:
         native_entry=struct.unpack_from('<H',maps[0],(23+y)*64+(col+x)*2)[0]
         entry=struct.unpack_from('<H',v,0x800+(23+y)*64+(col+x)*2)[0]

@@ -6,6 +6,25 @@ from timer_border import map_pixels
 from timer_shadow import FRAME_SHADOW_ENABLED
 
 
+def check_dr_exposed_background(e, picture):
+    """Check the extension against original repeating cells, independently
+    of the generated maps. The strip at x=192..199 is background column 16.
+    """
+    source=SOURCE.read_bytes();ram=e.memory()
+    for row in (*range(1,8),*range(11,15)):
+        e2=struct.unpack_from('<H',source,0xaa800+(8+row%2)*64)[0]
+        e3=struct.unpack_from('<H',source,0xac800+(8+row%4)*64)[0]
+        main=map_pixels(source,e2);sub=map_pixels(source,e3,True)
+        for y in range(8):
+            for x in range(8):
+                p,q=main[y][x],sub[y][x]
+                a=struct.unpack_from('<H',ram,0x1500+(((e2>>10)&7)*16+p)*2)[0]
+                b=struct.unpack_from('<H',ram,0x1500+(((e3>>10)&7)*4+q)*2)[0] if q else 0
+                r,g,blue=(max(0,((a>>s)&31)-((b>>s)&31)) for s in (0,5,10))
+                expected=(r*255//31,(g*2+(g>>4))*255//63,blue*255//31) if e.pixel_format==2 else tuple(v*255//31 for v in (r,g,blue))
+                assert picture.getpixel((192+x,row*8+y))==expected, f'Extended Dr. Mario background differs from native mosaic at {(192+x,row*8+y)}'
+
+
 def check_dr_frame_edges(e,picture):
     """Resolve all three original layers, preserving their native pairings.
 
@@ -13,6 +32,7 @@ def check_dr_frame_edges(e,picture):
     and pipes above SCORE. They exclude animated pills, viruses and HUD digits.
     Every pixel is taken from its original position, without palette swaps.
     """
+    check_dr_exposed_background(e,picture)
     source=SOURCE.read_bytes();ram=e.memory()
     for left,top,right,bottom in ((88,56,125,88),(0,0,72,4),(0,8,8,32)):
         for row in range(top//8,(bottom+7)//8):

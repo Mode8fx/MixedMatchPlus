@@ -1,9 +1,8 @@
 """Compare solo score reveals against the unchanged native two-player sequence."""
-from pathlib import Path
 import struct
 
 from build_rom import OUTPUT, ROOT, SOURCE
-from verify_menu import Emulator
+from verify_menu import Emulator, DEFAULT_CORE
 
 
 def verify_results(core):
@@ -66,4 +65,4 @@ def verify_results(core):
 
 
 if __name__=='__main__':
-    verify_results(Path('C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll'))
+    verify_results(DEFAULT_CORE)

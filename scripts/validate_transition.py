@@ -1,14 +1,14 @@
 """Exercise a real Tetris line clear and inspect the solo wipe frame by frame."""
-from pathlib import Path
 from build_rom import OUTPUT, ROOT
-from verify_menu import Emulator
-from validate_timer import displayed_timer_pixel, timer_column, timer_screen_x
+from verify_menu import Emulator, DEFAULT_CORE
+from timer import TIMER_COLUMN
+from validate_timer import displayed_timer_pixel, timer_screen_x
 
 
 def timer_visible(e,picture):
     """Compare the actual displayed panel with its current VRAM/CGRAM pixels."""
     r=e.memory();v=e.memory(3)
-    col=timer_column(r);left=timer_screen_x(r)
+    col=TIMER_COLUMN;left=timer_screen_x(r)
     for row in range(23,27):
         for x in range(6):
             for y in range(8):
@@ -80,4 +80,4 @@ def verify_solo_transition(core):
 
 
 if __name__=='__main__':
-    verify_solo_transition(Path('C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll'))
+    verify_solo_transition(DEFAULT_CORE)

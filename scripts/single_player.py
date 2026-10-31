@@ -3,10 +3,11 @@ from pathlib import Path
 import struct
 from assemble65816 import assemble
 from snes_disasm import offset
-from build_rom import decode_tile, encode_tile
+from build_rom import decode_tile, encode_tile, text_tiles
+from background import build_solo_backgrounds
 from normal_menu import build_normal_menu
 from custom_menu import build_music_row
-from timer import build_timer, FONT_FIRST_TILE
+from timer import build_timer, FONT_FIRST_TILE, TIMER_COLUMN
 from timer_padding import build_padding
 from timer_border import build_border, COLOR_FIRST_TILE
 from timer_shadow import SHADOW_CELLS, FRAME_SHADOW_ENABLED
@@ -22,8 +23,6 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     ranges=[]
     def put(off,data):
         rom[off:off+len(data)]=data;ranges.append((off,off+len(data)))
-    def text(s):
-        return b''.join(struct.pack('<H',0x2000 if c==' ' else 0x2100+(int(c) if c.isdigit() else ord(c)-55)) for c in s)
     def hook(pc,label,size=3,opcode=0x20):
         addr=labels[label];width=3 if opcode in (0x22,0x5c) else 2
         data=bytes([opcode])+(addr&((1<<(width*8))-1)).to_bytes(width,'little')
@@ -74,14 +73,11 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
             put(off,data)
     put(offset(labels['timer_font_destination'])+1,struct.pack('<H',(0x2000+FONT_FIRST_TILE*32)//2))
 
-    # These native color maps belong to Mixed Match. Keep the timer's subscreen
-    # black in both halves, including when players change games independently.
+    # The final frame/color composites below use this transparent BG3 tile.
     for base in (0xAB800,0xAC000,0xAC800):
         entries=struct.unpack_from('<1024H',source,base)
         if any(entry&0x3ff==0x1ff for entry in entries):
             raise ValueError('Mixed Match already uses reserved BG3 tile $1FF')
-        for row in range(23,27):
-            put(base+row*64+26,struct.pack('<6H',*([0x1ff]*6)))
 
     # Pixel layout, graphics, and focus cells come from the same native assets.
     menu_map,graphics,highlights=build_normal_menu(source)
@@ -111,9 +107,9 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     values=struct.unpack_from('<13H',source,off)
     put(off,struct.pack('<13H',*(custom_rows[v//64]*64+v%64 for v in values)))
 
-    put(offset(0x9C9000),text('MODE SELECT 1PLAYER GAME'))
-    put(offset(0x9C9060),text('BGM1BGM2BGM3OFF '))
-    put(offset(0x9C9080),text('PRESS START'))
+    put(offset(0x9C9000),text_tiles('MODE SELECT 1PLAYER GAME',0x2000))
+    put(offset(0x9C9060),text_tiles('BGM1BGM2BGM3OFF ',0x2000))
+    put(offset(0x9C9080),text_tiles('PRESS START',0x2000))
     result=bytearray(source[0xB3000:0xB3780])
     # One score column, no opponent labels, judgement, or winner comparison.
     for row in range(4,27):
@@ -170,37 +166,14 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
     put(off,label_graphics)
     # Extend only decorative maps. Their native left halves remain byte-identical,
     # and the unused right halves become background texture, never another field.
-    padding_maps={}
-    for stage,bg2_source,bg3_source,destination in (
-        (1,0xAA000,0xAC000,0x9CC000),
-        (3,0xAA800,0xAC800,0x9CD000),
-        (5,0xA9800,0xAB800,0x9CE000),
-    ):
-        bg2=bytearray(source[bg2_source:bg2_source+0x800])
-        bg3=bytearray(source[bg3_source:bg3_source+0x800])
-        for row in range(32):
-            for col in range(16,32):
-                index=row*64+col*2
-                if stage==3:
-                    # The native two-by-two diamond texture and its color layer.
-                    tile2=struct.unpack_from('<H',source,bg2_source+(8+row%2)*64+(col%2)*2)[0]
-                    tile3=struct.unpack_from('<H',source,bg3_source+(8+row%4)*64+(col%2)*2)[0]
-                else:
-                    # Preserve the full maze's geometry, using its body palette
-                    # instead of the blue palette belonging to the score strip.
-                    tile2=(struct.unpack_from('<H',bg2,index)[0]&~0x1c00)|0x1400
-                    tile3=struct.unpack_from('<H',source,bg3_source+10*64)[0]
-                struct.pack_into('<H',bg2,index,tile2)
-                struct.pack_into('<H',bg3,index,tile3)
-        padding_maps[stage]=(bytes(bg2),bytes(bg3))
-        maps=bytearray(bg2+bg3)
-        col=13
-        for row in range(23,27):
-            struct.pack_into('<6H',maps,0x800+row*64+col*2,*([0x1ff]*6))
+    padding_maps=build_solo_backgrounds(source)
+    for stage,destination in ((1,0x9CC000),(3,0x9CD000),(5,0x9CE000)):
+        bg2=padding_maps[stage][0]
         off=offset(destination)
-        if source[off:off+len(maps)]!=b'\xff'*len(maps):
+        if source[off:off+0x1000]!=b'\xff'*0x1000:
             raise ValueError(f'Solo background space is not blank at {destination:06X}')
-        put(off,maps)
+        # BG3 is written once, with its final timer composites below.
+        put(off,bg2)
     color_state=([],{})
     built={two:build_border(source,padding_maps,*timer_sets[two],two,color_state)
            for two in (True,False)}
@@ -224,11 +197,10 @@ def apply(rom: bytearray, source: bytes) -> list[tuple[int,int]]:
         put(offset(destination),color_maps[index])
     for index,base in ((3,0xAC000),(7,0xAC800),(11,0xAB800)):
         for row in range(23,27):
-            off=row*64+26
+            off=row*64+TIMER_COLUMN*2
             put(base+off,color_maps[index][off:off+12])
-    for index,base in ((3,0xAC000),(7,0xAC800),(11,0xAB800)):
         for y,x in SHADOW_CELLS:
-            off=(23+y)*64+(13+x)*2
+            off=(23+y)*64+(TIMER_COLUMN+x)*2
             put(base+off,shadow_maps[index][off:off+2])
     for pc,data in zip((0x9CF000,0x9EB800,0x9CFE00,0x9EB000),build_padding(source,padding_maps,borders,color_maps,shadow_maps)):
         off=offset(pc)

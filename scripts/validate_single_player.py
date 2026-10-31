@@ -10,7 +10,8 @@ import struct
 from PIL import ImageChops
 
 from build_rom import OUTPUT, ROOT, SOURCE, SOURCE_SHA256, build_rom, decode_tile
-from verify_menu import Emulator
+from verify_menu import Emulator, DEFAULT_CORE
+from timer import TIMER_COLUMN
 
 DEST=ROOT/'custom'/'validation'
 
@@ -149,7 +150,7 @@ def custom_speed_visibility(e):
     e.write_memory(0x1eb3,old);e.run(3)
 
 
-def custom_music_layout(e,source):
+def custom_music_layout(e):
     vram=e.memory(3)
     entries=struct.unpack_from('<32H',vram,17*64)
     r=e.memory();value=('BGM1','BGM2','BGM3','OFF ')[r[0x1ea9]]
@@ -215,50 +216,26 @@ def custom_menu_layout(e, source, two_players=False):
         e.screenshot(DEST/'custom-time-focused-menu.png')
         press(e,4);assert e.memory()[0x1ef2]==7
         e.run(2)
-        custom_music_layout(e,source)
+        custom_music_layout(e)
         native_settings=e.memory()[0x1eaa:0x1eb7]
         while e.memory()[0x1ea9]:press(e,6)
         for setting,name in enumerate(('bgm1','bgm2','bgm3','off')):
             if setting:press(e,7)
             e.run(3)
             assert e.memory()[0x1ea9]==setting
-            custom_music_layout(e,source)
+            custom_music_layout(e)
             assert e.memory()[0x1eaa:0x1eb7]==native_settings
             e.screenshot(DEST/f'custom-music-{name}-menu.png')
             if setting==0:e.screenshot(DEST/'custom-music-focused-menu.png')
         press(e,7);assert e.memory()[0x1ea9]==0
-        e.run(3);custom_music_layout(e,source)
+        e.run(3);custom_music_layout(e)
         press(e,6);assert e.memory()[0x1ea9]==3
-        e.run(3);custom_music_layout(e,source)
+        e.run(3);custom_music_layout(e)
         for _ in range(3):press(e,6)
         assert e.memory()[0x1ea9]==0
         for _ in range(7):press(e,4)
         assert e.memory()[0x1ef2]==0
         e.run(3);custom_count_layout(e)
-
-
-def check_dr_exposed_background(e, picture):
-    """Check the extended background against the original paired mosaic.
-
-    This uses native repeating texture/color cells, not the generated maps,
-    so a transparent old HUD tint cannot silently turn this strip gray.
-    The foreground window ends at x=191; these pixels are all background.
-    Aligned 64px cameras place this strip in even background column 16.
-    """
-    from timer_border import map_pixels
-    source=SOURCE.read_bytes();ram=e.memory()
-    for row in (*range(1,8),*range(11,15)):
-        e2=struct.unpack_from('<H',source,0xaa800+(8+row%2)*64)[0]
-        e3=struct.unpack_from('<H',source,0xac800+(8+row%4)*64)[0]
-        main=map_pixels(source,e2);sub=map_pixels(source,e3,True)
-        for y in range(8):
-            for x in range(8):
-                p,q=main[y][x],sub[y][x]
-                a=struct.unpack_from('<H',ram,0x1500+(((e2>>10)&7)*16+p)*2)[0]
-                b=struct.unpack_from('<H',ram,0x1500+(((e3>>10)&7)*4+q)*2)[0] if q else 0
-                r,g,blue=(max(0,((a>>s)&31)-((b>>s)&31)) for s in (0,5,10))
-                expected=(r*255//31,(g*2+(g>>4))*255//63,blue*255//31) if e.pixel_format==2 else tuple(v*255//31 for v in (r,g,blue))
-                assert picture.getpixel((192+x,row*8+y))==expected, f'Extended Dr. Mario background differs from native mosaic at {(192+x,row*8+y)}'
 
 
 def background_capture(e, stage, path):
@@ -267,16 +244,14 @@ def background_capture(e, stage, path):
     start={1:0xe4000,3:0xe5000,5:0xe6000}[stage]
     ram=e.memory()
     foreground_shift=64 if stage==3 else 80
-    background_shift=foreground_shift
     assert ram[0x1ef3]==foreground_shift, 'Wrong solo sprite/window displacement'
     assert int.from_bytes(ram[0x4f:0x51],'little')==(-foreground_shift)&0xffff
     for off in (0x53,0x57):
-        assert int.from_bytes(ram[off:off+2],'little')==(-background_shift)&0xffff, 'Solo background camera moved'
+        assert int.from_bytes(ram[off:off+2],'little')==(-foreground_shift)&0xffff, 'Solo background camera moved'
     # The timer locally replaces BG2 and its BG3 color layer at the bottom.
     expected=bytearray(OUTPUT.read_bytes()[start:start+0x1000])
     actual=bytearray(e.memory(3)[0x800:0x1800])
-    from validate_timer import timer_column
-    col=timer_column(e.memory())
+    col=TIMER_COLUMN
     for row in range(23,27):
         for base in (0,0x800):
             off=base+row*64+col*2
@@ -323,7 +298,6 @@ def background_capture(e, stage, path):
     picture=e.screenshot(path)
     if stage==3:
         from validate_solo_art import check_dr_frame_edges
-        check_dr_exposed_background(e,picture)
         check_dr_frame_edges(e,picture)
     for bounds in ((0,0,64,224),(224,0,256,224)):
         side=picture.crop(bounds)
@@ -405,7 +379,7 @@ def verify(core):
 
             # Enter each native completion state; exercise the original wipe,
             # graphics reload, countdown, next-game rules and controller logic.
-            for old,new,name in ((1,3,'dr-mario'),(3,5,'tetris-final')):
+            for new,name in ((3,'dr-mario'),(5,'tetris-final')):
                 e.write_memory(0x305,b'\x0b\x00')
                 e.write_memory(0x316,b'\x01')
                 active(e,new)
@@ -504,5 +478,5 @@ def verify(core):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--core',type=Path,default=Path('C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll'))
+    p.add_argument('--core',type=Path,default=DEFAULT_CORE)
     verify(p.parse_args().core)

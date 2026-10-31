@@ -14,25 +14,6 @@ SHADOW_WIDTH, SHADOW_HEIGHT = 56,40
 SHADOW_CELLS = tuple((y,6) for y in range(4))+tuple((4,x) for x in range(7))
 
 
-def native_solo_maps(source):
-    """Reconstruct unpatched decorative maps for pixel-level validation."""
-    result={}
-    for phase,b2,b3 in ((1,0xAA000,0xAC000),(3,0xAA800,0xAC800),(5,0xA9800,0xAB800)):
-        bg2=bytearray(source[b2:b2+0x800]);bg3=bytearray(source[b3:b3+0x800])
-        for row in range(32):
-            for col in range(16,32):
-                off=row*64+col*2
-                if phase==3:
-                    e=struct.unpack_from('<H',source,b2+(8+row%2)*64+(col%2)*2)[0]
-                    ce=struct.unpack_from('<H',source,b3+(8+row%4)*64+(col%2)*2)[0]
-                else:
-                    e=(struct.unpack_from('<H',source,b2+off)[0]&~0x1c00)|0x1400
-                    ce=struct.unpack_from('<H',source,b3+10*64)[0]
-                struct.pack_into('<H',bg2,off,e);struct.pack_into('<H',bg3,off,ce)
-        result[phase]=(bytes(bg2),bytes(bg3))
-    return result
-
-
 def shadow_mask(source, doctors, two, maps, col):
     if not FRAME_SHADOW_ENABLED:
         return [[False]*SHADOW_WIDTH for _ in range(SHADOW_HEIGHT)]

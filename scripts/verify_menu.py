@@ -19,6 +19,7 @@ from build_rom import (OUTPUT, ROOT, SOURCE, PREVIEW_GFX_BASE, PREVIEW_MAP_OFFSE
 
 SELECT_SEQUENCE = ["600", "start:1", "120"]
 MENU_SEQUENCE = SELECT_SEQUENCE + ["down:1", "1", "start:1", "120"]
+DEFAULT_CORE = Path("C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll")
 
 
 class GameInfo(C.Structure):
@@ -172,13 +173,10 @@ def check(core: Path):
                             ROOT / "custom" / "validation" / f"{prefix}{name}.png")
                     for rom, prefix in ((SOURCE, "original-"), (OUTPUT, ""))]
         difference = ImageChops.difference(*pictures)
-        if label_bounds:
-            assert difference.getbbox(), f"{name} did not change"
-            # Only CUSTOM GAME may differ; GAME START and the cursor stay intact.
-            difference.paste((0, 0, 0), label_bounds)
-            assert difference.getbbox() is None, f"Unrelated {name} pixels changed"
-        else:
-            assert difference.getbbox() is None, f"{name} behavior changed"
+        assert difference.getbbox(), f"{name} did not change"
+        # Only CUSTOM GAME may differ; GAME START and the cursor stay intact.
+        difference.paste((0, 0, 0), label_bounds)
+        assert difference.getbbox() is None, f"Unrelated {name} pixels changed"
     assert SOURCE.read_bytes() == original, "Original ROM changed"
     print(f"PASS: repeatable build, {len(changed)} changed bytes, title/preview labels localized, original ROM intact")
     from validate_single_player import verify
@@ -187,8 +185,7 @@ def check(core: Path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--core", type=Path, default=Path(
-        "C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll"))
+    parser.add_argument("--core", type=Path, default=DEFAULT_CORE)
     parser.add_argument("--rom", type=Path, default=OUTPUT)
     parser.add_argument("--sequence", nargs="+", default=MENU_SEQUENCE)
     parser.add_argument("--capture", type=Path, default=ROOT / "custom" / "validation" / "mixed-match-menu.png")

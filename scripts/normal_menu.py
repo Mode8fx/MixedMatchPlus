@@ -1,7 +1,7 @@
 """Render the normal Mixed Match menu at explicit pixel positions."""
 import struct
 
-from build_rom import decode_tile, encode_tile
+from build_rom import decode_tile, encode_tile, text_tiles
 
 
 def build_normal_menu(source: bytes) -> tuple[bytes, bytes, bytes]:
@@ -15,13 +15,10 @@ def build_normal_menu(source: bytes) -> tuple[bytes, bytes, bytes]:
     new=rows.copy()
     for row in range(4,24):new[row]=rows[7]
 
-    def text(s):
-        return b''.join(struct.pack('<H',0x2000 if c==' ' else 0x2100+(int(c) if c.isdigit() else ord(c)-55)) for c in s)
-
     # PLAYERS stays in its original position, with the original border colors.
     for row,data in (
         (4,struct.pack('<9H',0x2024,*([0x2025]*7),0x6024)),
-        (5,struct.pack('<H',0x2026)+text('PLAYERS')+struct.pack('<H',0x6026)),
+        (5,struct.pack('<H',0x2026)+text_tiles('PLAYERS',0x2000)+struct.pack('<H',0x6026)),
         (6,struct.pack('<9H',0xa024,*([0xa025]*7),0xe024)),
     ):
         line=bytearray(new[row]);line[8:8+len(data)]=data;new[row]=bytes(line)

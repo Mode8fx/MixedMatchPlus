@@ -1,8 +1,6 @@
 """Compare held custom-setting input with the unchanged native P2 handler."""
-from pathlib import Path
-
 from build_rom import OUTPUT
-from verify_menu import Emulator
+from verify_menu import Emulator, DEFAULT_CORE
 
 
 def verify_custom_repeat(core):
@@ -56,7 +54,7 @@ def verify_custom_repeat(core):
             assert e.memory()[0x1ef2]==8
             for button,start,limit in ((7,29,30),(6,2,1)):
                 e.run(3);e.write_memory(0x1eb6,bytes((start,)))
-                for frame in range(40):e.run(1,(button,))
+                e.run(40,(button,))
                 assert e.memory()[0x1eb6]==limit, 'Held play-time input lost native bounds'
             # Menu navigation retains its existing one-row-per-press behavior.
             e.run(3);e.run(60,(4,));assert e.memory()[0x1ef2]==7
@@ -65,4 +63,4 @@ def verify_custom_repeat(core):
 
 
 if __name__=='__main__':
-    verify_custom_repeat(Path('C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll'))
+    verify_custom_repeat(DEFAULT_CORE)

@@ -1,8 +1,7 @@
 """Check displayed clock updates throughout each visible round-introduction card."""
-from pathlib import Path
 from build_rom import OUTPUT, ROOT
 from snes_disasm import offset
-from verify_menu import Emulator
+from verify_menu import Emulator, DEFAULT_CORE
 from timer_border import BORDER_CELLS
 
 
@@ -63,4 +62,4 @@ def verify_intro_timer(core):
 
 
 if __name__=='__main__':
-    verify_intro_timer(Path('C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll'))
+    verify_intro_timer(DEFAULT_CORE)

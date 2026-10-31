@@ -4,7 +4,7 @@ Supports labels, org, db/dw/dl, and the addressing modes in snes_disasm. Immedia
 widths must be explicit (.b/.w); other memory operands default to absolute (.w).
 """
 import re
-from snes_disasm import OPS, SIZES, offset
+from snes_disasm import OPS, SIZES
 
 
 def assemble(source: str) -> tuple[dict[int, bytes], dict[str, int]]:

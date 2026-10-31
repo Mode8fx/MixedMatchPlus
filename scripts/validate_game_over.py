@@ -1,9 +1,8 @@
 """Compare real blocked-spawn Dr. Mario popups with the original ROM."""
-from pathlib import Path
 import struct
 
 from build_rom import OUTPUT, ROOT, SOURCE
-from verify_menu import Emulator
+from verify_menu import Emulator, DEFAULT_CORE
 
 
 def popup_mask(source):
@@ -143,4 +142,4 @@ def verify_game_over(core):
 
 
 if __name__=='__main__':
-    verify_game_over(Path('C:/RetroBat/emulators/retroarch/cores/snes9x_libretro.dll'))
+    verify_game_over(DEFAULT_CORE)

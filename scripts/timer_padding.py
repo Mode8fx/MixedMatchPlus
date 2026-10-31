@@ -1,19 +1,20 @@
 """Restore native backgrounds above/below the compact two-player gold frame."""
 import struct
+from timer import TIMER_COLUMN
 
 
 def timer_layouts(source, solo_maps):
     phases=(1,3,5)
     bg2={n:source[b:b+0x800] for n,b in ((1,0xAA000),(3,0xAA800),(5,0xA9800))}
     bg3={n:source[b:b+0x800] for n,b in ((1,0xAC000),(3,0xAC800),(5,0xAB800))}
-    layouts=[(solo_maps[n],(n==3,n==3),13) for n in phases]
+    layouts=[(solo_maps[n],(n==3,n==3),TIMER_COLUMN) for n in phases]
     for left in phases:
         for right in phases:
             maps=[]
             for layer in (bg2,bg3):
                 maps.append(b''.join(layer[left][y*64:y*64+32]+layer[right][y*64+32:(y+1)*64]
                                      for y in range(32)))
-            layouts.append((maps,(left==3,right==3),13))
+            layouts.append((maps,(left==3,right==3),TIMER_COLUMN))
     return layouts
 
 
