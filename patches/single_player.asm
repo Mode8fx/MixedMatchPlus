@@ -438,9 +438,9 @@ solo_results_total_show:
   brl.w solo_results_draw
 solo_results_input:
   jsr.w $DEBF
+  jsl.l solo_results_prompt
   lda.w $0306
   bne solo_results_input_ready
-  jsl.l solo_results_prompt
   inc.w $0306
   brl.w solo_results_draw
 solo_results_input_ready:
@@ -1818,6 +1818,27 @@ solo_results_prompt:
   rep.b #$30
   phx
   ldx.w #$0000
+  ; Match the Custom Game exit prompt at $83DFD4: 20 hidden, 20 shown.
+  ; The completed total-reveal countdown leaves $0316 at zero for this cycle.
+  sep.b #$20
+  inc.w $0316
+  lda.w $0316
+  cmp.b #$28
+  bcc solo_results_prompt_phase
+  stz.w $0316
+solo_results_prompt_phase:
+  lda.w $0316
+  cmp.b #$14
+  rep.b #$20
+  bcs solo_results_prompt_copy
+  lda.w #$2000
+solo_results_prompt_blank:
+  sta.l $7F060E,X
+  inx
+  inx
+  cpx.w #$0024
+  bne solo_results_prompt_blank
+  bra solo_results_prompt_done
 solo_results_prompt_copy:
   lda.l $9C9030,X
   sta.l $7F060E,X
@@ -1825,6 +1846,7 @@ solo_results_prompt_copy:
   inx
   cpx.w #$0024
   bne solo_results_prompt_copy
+solo_results_prompt_done:
   plx
   plp
   rtl
