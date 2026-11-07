@@ -10,5 +10,7 @@ _Mixed Match Plus_ is a hack of Tetris & Dr. Mario that makes several improvemen
 
 The download can be found [here](https://github.com/Mode8fx/MixedMatchPlus/tree/main/patches).
 
+![](screenshots/screenshot_v1.0_1.png)![](screenshots/screenshot_v1.0_2.png)![](screenshots/screenshot_v1.0_3.png)![](screenshots/screenshot_v1.0_4.png)![](screenshots/screenshot_v1.0_5.png)
+
 ## Notes
 - AI was used in the development of this hack (specifically, GPT 6.1 Sol), with human playtesting by me. Everything works as far as I can tell, but feel free to submit an issue if you find any bugs and I will fix them.
